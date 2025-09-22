@@ -1,6 +1,7 @@
 {
   "name": "powernine.dev",
   "version": "0.0.1",
+  "type": "module",
   "description": "making tcg card information accessible",
   "main": "index.js",
   "scripts": {

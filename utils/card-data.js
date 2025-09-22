@@ -1,8 +1,9 @@
-const axios = require('axios');
+import axios from 'axios';
 
-cardNamesCache = [];
+let cardNamesCache = [];
 
-async function initializeCardNameCache() {
+// Use 'export' to make this function available to other files
+export async function initializeCardNameCache() {
     try {
         console.log('Fetching Scryfall card name catalog...');
         const response = await axios.get('https://api.scryfall.com/catalog/card-names');
@@ -13,8 +14,7 @@ async function initializeCardNameCache() {
     }
 }
 
-function getCardNames() {
+// Use 'export' here as well
+export function getCardNames() {
     return cardNamesCache;
 }
-
-module.exports = { initializeCardNameCache, getCardNames };

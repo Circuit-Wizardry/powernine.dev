@@ -36,6 +36,9 @@ body {
     box-shadow: 0 2px 8px rgba(0,0,0,0.06);
     transition: background 0.2s;
 }
+.awesomplete {
+    width: 90%;
+}
 .search-bar:focus {
     background: #2d323c;
 }
