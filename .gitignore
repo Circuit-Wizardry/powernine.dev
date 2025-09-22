@@ -134,3 +134,8 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+data/AllData.sqlite-shm
+data/AllData.sqlite-wal
+data/AllData.sqlite
+data/AllPrices.json
+data/AllPrintings.sqlite

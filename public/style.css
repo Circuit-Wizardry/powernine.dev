@@ -54,10 +54,95 @@ body {
 }
 
 #printings-container {
-    margin-top: 1.5rem;
+    margin-top: 14%; 
     display: none;
+    flex-wrap: wrap;
+    justify-content: center;
     gap: 10px;
-    width: 60%;
-    max-height: 250px;
+    width: 80%;
     overflow-y: auto;
+}
+
+.printing-item {
+    display: inline-block;
+    margin: 10px;
+    cursor: pointer;
+    border: 3px solid transparent;
+    border-radius: 12px;
+    text-align: center;
+    transition: transform 0.2s;
+}
+
+.printing-item:hover {
+    transform: scale(1.05);
+}
+
+.printing-item.selected {
+    border-color: #007bff; /* Example highlight color */
+    box-shadow: 0 0 15px rgba(0, 123, 255, 0.7);
+}
+
+.printing-item img {
+    border-radius: 8px;
+    display: block; /* Removes extra space below the image */
+}
+
+.printing-info {
+    font-family: monospace;
+    font-size: 0.9em;
+    color: #555;
+    margin-top: 4px;
+}
+
+.foil-indicator {
+    font-weight: bold;
+    color: #b59410; /* Gold color for foil */
+    margin-top: 2px;
+}
+
+/* Add position: relative to the parent container */
+.printing-item {
+    position: relative; /* This is crucial for positioning the child button */
+    display: inline-block;
+    margin: 10px;
+    cursor: pointer;
+    border: 3px solid transparent;
+    border-radius: 12px;
+    text-align: center;
+    transition: all 0.2s ease-in-out;
+    overflow: hidden; /* Hides anything that might stick out */
+}
+
+/* Style the button */
+.expand-button {
+    position: absolute;
+    top: 40%; /* Position it vertically over the image area */
+    left: 50%;
+    transform: translate(-50%, -50%); /* Perfectly center the button */
+    
+    /* Make it hidden by default */
+    opacity: 0;
+    pointer-events: none; /* The button can't be clicked when hidden */
+    transition: opacity 0.2s ease-in-out;
+    
+    /* Visual styles */
+    background-color: rgba(24, 26, 27, 0.85); /* Semi-transparent dark background */
+    color: #f5f6fa;
+    padding: 10px 20px;
+    border-radius: 20px;
+    text-decoration: none;
+    font-weight: bold;
+    border: 1px solid #4fd1c5;
+    white-space: nowrap; /* Prevent text wrapping */
+}
+
+/* When a printing is selected, show the button */
+.printing-item.selected .expand-button {
+    opacity: 1;
+    pointer-events: auto; /* Allow clicks when visible */
+}
+
+/* Optional: Add a subtle overlay to the selected card image to make the button pop */
+.printing-item.selected img {
+    filter: brightness(0.6);
 }
