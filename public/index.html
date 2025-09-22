@@ -7,16 +7,30 @@
     <title>powernine.dev</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/awesomplete@1.1.5/awesomplete.min.js" defer></script>
-    <style>
-    </style>
 </head>
 <body>
     <div class="container" id="search-div">
+        <button class="tab-button left-tab" id="import-csv-btn">Import CSV</button>
+        <button class="tab-button right-tab">Create Binder</button>
+
         <div class="title">powernine.dev</div>
         <p style="text-align: center; margin-top: -2rem; margin-bottom: 1rem; font-size: 1rem; color: gray;">the <strong>free</strong> mtg trading & market analysis tool</p>
         <center><input class="search-bar" id="search-bar" type="text" placeholder="Search..." aria-label="Search"></center>
     </div>
+
+    <div id="import-modal" class="modal-background" style="display: none;">
+        <div class="modal-content">
+            <span class="close-button">&times;</span>
+            <h2>Import CSV</h2>
+            <p>Select a .csv file to upload. Max file size: 5MB.</p>
+            <input type="file" id="csv-file-input" accept=".csv">
+            <button id="upload-button">Upload and Process</button>
+            <p id="upload-message" style="margin-top: 1rem;"></p>
+        </div>
+    </div>
+
     <div id="printings-container"></div>
     <script src="/search.js"></script>
+    <script src="/import.js"></script>
 </body>
 </html>

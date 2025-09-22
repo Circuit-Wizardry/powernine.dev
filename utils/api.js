@@ -1,10 +1,79 @@
 import express from 'express';
 import sqlite3Base from 'sqlite3';
+import { Readable } from 'stream';
+import multer from 'multer';
+import csv from 'csv-parser';
+
 import { getCardNames } from './card-data.js';
 import axios from 'axios';
 
 const router = express.Router();
 const sqlite3 = sqlite3Base.verbose();
+
+// Configure multer for file uploads
+const storage = multer.memoryStorage(); // Store file in memory
+const upload = multer({ 
+    storage: storage,
+    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+});
+
+router.post('/import-csv', upload.single('cardList'), (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ message: 'No file uploaded.' });
+        }
+
+        const results = [];
+        const requiredColumns = ['Name', 'Set code', 'Collector number', 'Foil', 'Quantity'];
+        const stream = Readable.from(req.file.buffer.toString('utf8'));
+        let hasSentResponse = false; // Add a flag to prevent multiple responses
+
+        stream
+            .pipe(csv())
+            .on('data', (row) => {
+                if (hasSentResponse) return; // Ignore data if a response has already been sent
+
+                if (results.length === 0) {
+                    const headers = Object.keys(row);
+                    if (!requiredColumns.every(col => headers.includes(col))) {
+                        hasSentResponse = true;
+                        stream.destroy(); // Stop the stream immediately
+                        return res.status(400).json({ message: 'CSV is missing required columns.' });
+                    }
+                }
+
+                const cardData = {
+                    name: row['Name'],
+                    setCode: row['Set code'],
+                    collectorNumber: row['Collector number'],
+                    isFoil: row['Foil'] ? row['Foil'].toLowerCase() !== 'normal' : false,
+                    quantity: parseInt(row['Quantity'], 10) || 1,
+                };
+                results.push(cardData);
+            })
+            .on('end', () => {
+                if (hasSentResponse) return; // Don't send a response if one was already sent
+                
+                res.status(200).json({
+                    message: 'File processed successfully.',
+                    processedCount: results.length,
+                    data: results
+                });
+            })
+            .on('error', (error) => {
+                if (hasSentResponse) return; // Don't send a response if one was already sent
+                
+                console.error('Error processing CSV:', error);
+                hasSentResponse = true;
+                res.status(500).json({ message: 'Failed to process CSV file.' });
+            });
+
+    } catch (error) {
+        console.error('Unexpected error:', error);
+        res.status(500).json({ message: 'An unexpected error occurred.' });
+    }
+});
+
 
 const db = new sqlite3.Database('./data/AllData.sqlite', sqlite3.OPEN_READONLY, (err) => {
     if (err) {
