@@ -52,3 +52,12 @@ body {
     top: 36%;
     transition: top 0.5s ease-in-out;
 }
+
+#printings-container {
+    margin-top: 1.5rem;
+    display: none;
+    gap: 10px;
+    width: 60%;
+    max-height: 250px;
+    overflow-y: auto;
+}

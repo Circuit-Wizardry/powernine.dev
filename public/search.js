@@ -1,5 +1,9 @@
 document.addEventListener('DOMContentLoaded', () => {
 
+    const printingsContainer = document.getElementById('printings-container');
+
+
+
     function normalizeString(str) {
         return str
             .toLowerCase() // Convert to lowercase
@@ -29,44 +33,39 @@ document.addEventListener('DOMContentLoaded', () => {
         const searchDiv = document.getElementById('search-div');
         searchDiv.style.position = 'fixed';
         searchDiv.style.top = '2%';
+        printingsContainer.style.display = 'inline';
+        printingsContainer.innerHTML = '<em style="color: white;">Loading printings...</em>';
+        selectedPrinting = null;
 
+        try {
+            const response = await fetch(`/api/printings/${encodeURIComponent(cardName)}`);
+            if (!response.ok) throw new Error('Card not found');
+            const printings = await response.json();
+            
+            printingsContainer.innerHTML = '';
+            printings.forEach(printing => {
+                if (!printing.image_uris) return;
+                
+                const img = document.createElement('img');
+                img.src = printing.image_uris.small;
+                img.title = `${printing.name} - ${printing.set_name} (#${printing.collector_number})`;
+                img.alt = img.title;
+                
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'printing-item';
+                itemDiv.appendChild(img);
+                
+                itemDiv.addEventListener('click', () => {
+                    document.querySelectorAll('.printing-item.selected').forEach(el => el.classList.remove('selected'));
+                    itemDiv.classList.add('selected');
+                });
 
-        // Example variable for number of cards
-        const numCards = 5; // You can set this dynamically as needed
-
-        // Remove existing card container if present
-        let existingContainer = document.getElementById('card-container');
-        if (existingContainer) {
-            existingContainer.remove();
+                printingsContainer.appendChild(itemDiv);
+            });
+        } catch (error) {
+            printingsContainer.innerHTML = `<p class="error">Could not find any printings for "${cardName}".</p>`;
         }
 
-        // Create a new container for the cards
-        const cardContainer = document.createElement('div');
-        cardContainer.id = 'card-container';
-        cardContainer.style.display = 'flex';
-        cardContainer.style.flexDirection = 'row';
-        cardContainer.style.gap = '16px';
-        cardContainer.style.marginTop = '18%';
-
-        // Generate card divs
-        for (let i = 0; i < numCards; i++) {
-            const card = document.createElement('div');
-            card.style.width = '126px';
-            card.style.height = '172px';
-            card.style.borderRadius = '12px';
-            card.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
-            card.style.background = `hsl(${(i * 60) % 360}, 70%, 80%)`;
-            card.style.display = 'flex';
-            card.style.alignItems = 'center';
-            card.style.justifyContent = 'center';
-            card.style.fontWeight = 'bold';
-            card.style.fontSize = '1.2em';
-            card.textContent = `Card ${i + 1}`;
-            cardContainer.appendChild(card);
-        }
-
-        // Insert the card container after searchDiv
-        searchDiv.parentNode.insertBefore(cardContainer, searchDiv.nextSibling);
     })
 
 })
