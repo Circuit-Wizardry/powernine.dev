@@ -1,0 +1,24 @@
+{
+  "name": "powernine.dev",
+  "version": "0.0.1",
+  "description": "making tcg card information accessible",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Witherflare/powernine.dev.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Witherflare/powernine.dev/issues"
+  },
+  "homepage": "https://github.com/Witherflare/powernine.dev#readme",
+  "dependencies": {
+    "axios": "^1.12.2",
+    "better-sqlite3": "^12.3.0",
+    "express": "^5.1.0"
+  }
+}
