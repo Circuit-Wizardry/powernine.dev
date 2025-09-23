@@ -3,18 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Imported Card List</title>
-    <link rel="stylesheet" href="list-style.css">
+    <title>Imported Card Collection</title>
+    <link rel="stylesheet" href="/list-style.css">
+    
+    <!-- Chart.js library must be loaded here to prevent errors -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="header">
-        <h1>Imported Cards</h1>
-        <a href="/" class="back-button">← Back to Search</a>
-    </div>
-    <div id="card-list-container">
-        <div class="loader">Loading card data...</div>
+        <h1>Imported Collection</h1>
+        <div class="header-controls">
+            <a href="/" id="switch-view-btn" class="view-button">Switch to Binder</a>
+            <a href="/" class="back-button">← Import New List</a>
+        </div>
     </div>
 
-    <script src="list.js"></script>
+    <div class="toolbar">
+        <input type="text" id="search-bar" class="search-input" placeholder="Search by card name...">
+        <div class="sort-controls">
+            <span>Sort by:</span>
+            <button class="sort-button active" data-sort="price">Price</button>
+            <button class="sort-button" data-sort="quantity">Quantity</button>
+        </div>
+        <div id="total-value" class="total-value-box">
+            <span>Total Value (TCGPlayer):</span>
+            <strong id="total-value-amount">$0.00</strong>
+        </div>
+    </div>
+
+    <div id="card-list-container">
+        <!-- Cards will be dynamically inserted here by list.js -->
+    </div>
+
+    <!-- Your script is loaded last -->
+    <script src="/list.js"></script>
 </body>
 </html>
+

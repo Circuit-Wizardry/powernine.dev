@@ -1,75 +1,144 @@
+:root {
+    --bg-color: #1a1a1a;
+    --surface-color: #2c2c2c;
+    --text-color: #e0e0e0;
+    --primary-color: #4fd1c5;
+    --border-color: #444;
+}
+
 body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     margin: 0;
-    font-family: 'Inter', Arial, sans-serif;
-    background: linear-gradient(135deg, #18181b 0%, #23272f 100%);
-    color: #f5f6fa;
+    padding: 20px;
 }
 
 .header {
-    text-align: center;
-    padding: 20px;
-    background: rgba(30, 32, 38, 0.85);
-    border-bottom: 1px solid #4a5568;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding: 0 10px;
 }
 
-h1 {
-    margin: 0;
-    font-weight: 700;
-}
+h1 { margin: 0; }
 
-.back-button {
-    display: inline-block;
-    margin-top: 10px;
-    color: #4fd1c5;
+.header-controls { display: flex; gap: 16px; }
+
+.view-button, .back-button {
+    color: var(--primary-color);
     text-decoration: none;
+    font-weight: 600;
+    padding: 8px 16px;
+    border: 1px solid var(--primary-color);
+    border-radius: 20px;
+    white-space: nowrap;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.view-button:hover, .back-button:hover {
+    background-color: var(--primary-color);
+    color: var(--bg-color);
+}
+
+.toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 10px;
+    margin-bottom: 20px;
+    gap: 20px;
+}
+
+.search-input {
+    flex-grow: 1;
+    background-color: var(--surface-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 1rem;
+}
+
+.sort-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.sort-controls span {
+    color: #aaa;
+}
+.sort-button {
+    background: none;
+    border: 1px solid #555;
+    color: #ccc;
+    padding: 8px 16px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+.sort-button:hover {
+    background-color: #333;
+}
+.sort-button.active {
+    background-color: var(--primary-color);
+    color: var(--bg-color);
+    border-color: var(--primary-color);
     font-weight: bold;
 }
 
 #card-list-container {
     display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 20px;
-    padding: 20px;
+    flex-direction: column;
+    gap: 12px;
 }
 
 .card-item {
-    background: #2d323c;
-    border-radius: 12px;
-    padding: 15px;
-    width: 220px;
-    text-align: center;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
-
-.card-item img {
-    width: 100%;
+    background-color: var(--surface-color);
     border-radius: 8px;
-    margin-bottom: 10px;
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
 }
 
-.card-info h3 {
-    margin: 0 0 5px 0;
-    font-size: 1.1em;
+.card-image {
+    width: 63px; /* Scryfall 'small' size width */
+    height: 88px;
+    border-radius: 4px;
+    flex-shrink: 0;
 }
 
-.card-info p {
-    margin: 4px 0;
-    font-size: 0.9em;
-    color: #a0aec0;
+.card-info { flex-grow: 1; }
+.card-info h3 { margin: 0 0 4px; font-size: 1.1rem; color: white; }
+.card-info p { margin: 0; color: #aaa; font-size: 0.85rem; }
+.foil-indicator { font-weight: 600; color: #f0e68c; display: inline-block; margin-left: 8px; }
+
+.card-quantity, .card-price {
+    flex-basis: 100px;
+    text-align: right;
+}
+.card-quantity span, .card-price span {
+    font-size: 0.8rem;
+    color: #aaa;
+    display: block;
+}
+.card-quantity strong, .card-price strong {
+    font-size: 1.2rem;
+    color: var(--primary-color);
 }
 
-.card-info .price {
-    font-weight: bold;
-    color: #48bb78;
-    font-size: 1.2em;
-    margin-top: 10px;
+/* Skeleton Loading Styles */
+.skeleton {
+    opacity: 0.7;
+    animation: skeleton-loading 1.5s infinite linear;
 }
-
-.loader {
-    font-size: 1.5em;
-    padding: 40px;
+@keyframes skeleton-loading {
+    0% { background-color: #333; }
+    50% { background-color: #444; }
+    100% { background-color: #333; }
 }
+.skeleton .card-image { background-color: #555; }
+.skeleton .card-info h3 { width: 60%; height: 20px; background-color: #555; border-radius: 4px; margin-bottom: 8px; }
+.skeleton .card-info p { width: 40%; height: 14px; background-color: #555; border-radius: 4px; }

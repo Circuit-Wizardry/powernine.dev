@@ -54,27 +54,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const formData = new FormData();
         formData.append('cardList', file);
 
-        try {
-            const response = await fetch('/api/import-csv', {
-                method: 'POST',
-                body: formData,
-            });
-            const result = await response.json();
+        const response = await fetch('/api/import-csv', {
+            method: 'POST',
+            body: formData
+        });
 
-            if (response.ok) {
-                // *** THIS IS THE NEW PART ***
-                // Store result in session storage and redirect
-                sessionStorage.setItem('importedCardData', JSON.stringify(result.data));
-                window.location.href = '/list.html';
-                // **************************
-            } else {
-                throw new Error(result.message || 'An unknown error occurred.');
-            }
+        const result = await response.json();
 
-        } catch (error) {
-            uploadMessage.textContent = `Error: ${error.message}`;
-            uploadMessage.style.color = '#E53E3E';
-            console.error('Upload failed:', error);
+        if (response.ok) {
+            // SUCCESS: Instead of saving to session storage, we redirect!
+            window.location.href = `/list/${result.listId}`;
+        } else {
+            // Handle error
+            alert(`Error: ${result.message}`);
         }
     });
 });

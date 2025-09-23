@@ -25,11 +25,19 @@ app.get('/cards/:set/:number', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'card-info.html'));
 });
 
+app.get('/list/:listId', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'list.html'));
+});
+
+app.get('/binder/:listId', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'binder.html'));
+});
+
 console.log('Scheduling the daily database merge task...');
 // Schedule to run at 3:00 AM every day
 cron.schedule('0 3 * * *', () => {
     console.log(`[${new Date().toISOString()}] Kicking off daily database merge job...`);
-    
+
     const mergeProcess = exec('node daily-update.js', (error, stdout, stderr) => {
         if (error) {
             console.error(`❌ [CRON-ERROR] Failed to run merge script: ${error.message}`);

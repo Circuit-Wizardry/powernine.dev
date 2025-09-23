@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Card Binder View</title>
+    <link rel="stylesheet" href="/binder.css">
+</head>
+<body>
+    <div class="header">
+        <h1>Binder View</h1>
+        
+        <div class="navigation-controls">
+            <button id="prev-page" disabled>‹ Prev</button>
+            <span id="page-indicator">Page 1 of 1</span>
+            <button id="next-page" disabled>Next ›</button>
+        </div>
+
+        <div class="header-controls">
+            <a href="/" id="switch-view-btn" class="view-button">Switch to List View</a>
+            <a href="/" class="back-button">← Import New List</a>
+        </div>
+    </div>
+
+    <div class="binder-layout">
+        <div class="binder-page" id="binder-page-left"></div>
+        <div class="binder-page" id="binder-page-right"></div>
+    </div>
+    
+    <div id="loader" class="loader">Loading binder...</div>
+
+    <!-- The modal structure is updated -->
+    <div id="card-modal" class="modal-overlay">
+        <div class="modal-content">
+            <img id="modal-image" src="" alt="Card Image" />
+            <div class="modal-info">
+                <h3 id="modal-card-name">Card Name</h3>
+                
+                <!-- NEW: Quantity Box -->
+                <div class="modal-quantity-box">
+                    <span>Quantity in Collection</span>
+                    <strong id="modal-quantity">1</strong>
+                </div>
+
+                <div class="modal-price-box">
+                    <span>Scryfall Market Price</span>
+                    <strong id="modal-price">$0.00</strong>
+                </div>
+                <a href="#" id="modal-list-link" class="list-link">
+                    For in-depth pricing, view in List Mode →
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script src="/binder.js"></script>
+</body>
+</html>
