@@ -8,7 +8,7 @@ body {
     font-family: 'Inter', Arial, sans-serif;
 }
 .container {
-    position: relative; /* This is crucial for positioning the tabs */
+    position: relative;
     text-align: center;
     width: 100%;
     max-width: 400px;
@@ -23,6 +23,7 @@ body {
     letter-spacing: 0.05em;
     color: #fff;
     margin-bottom: 32px;
+    margin-top: 0px;
     text-transform: lowercase;
 }
 .search-bar {
@@ -143,35 +144,31 @@ body {
     filter: brightness(0.6);
 }
 
+/* NEW STYLES for the button container */
+.button-container {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+/* MODIFIED button styles */
 .tab-button {
-    position: absolute;
-    top: 80px; /* Adjust vertical position */
     background: rgba(30, 32, 38, 0.85);
     box-shadow: 0 8px 32px rgba(0,0,0,0.18);    
-    color: white;
     border: none;
-    padding: 10px 15px;
+    padding: 1px 1px;
     cursor: pointer;
-    font-size: 0.9rem;
-    font-family: 'Inter', Arial, sans-serif;
     transition: background-color 0.3s;
+    border-radius: 8px;
+    width: 12%;
 }
 
 .tab-button:hover {
     background-color: #242d2c;
 }
 
-.left-tab {
-    left: 0;
-    transform: translateX(-100%);
-    border-radius: 10px 0 0 10px;
-}
-
-.right-tab {
-    right: 0;
-    transform: translateX(100%);
-    border-radius: 0 10px 10px 0;
-}
+/* The .left-tab and .right-tab rules are no longer needed */
 
 /* Modal Styles */
 .modal-background {

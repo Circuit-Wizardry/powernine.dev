@@ -8,7 +8,7 @@
 </head>
 <body>
     <div class="header">
-        <h1>Binder View</h1>
+        <h1>binder view</h1>
         
         <div class="navigation-controls">
             <button id="prev-page" disabled>‹ Prev</button>
@@ -17,8 +17,8 @@
         </div>
 
         <div class="header-controls">
-            <a href="/" id="switch-view-btn" class="view-button">Switch to List View</a>
-            <a href="/" class="back-button">← Import New List</a>
+            <a href="/" id="switch-view-btn" class="view-button">switch to list view</a>
+            <a href="/" class="back-button">← import new list</a>
         </div>
     </div>
 
@@ -27,7 +27,7 @@
         <div class="binder-page" id="binder-page-right"></div>
     </div>
     
-    <div id="loader" class="loader">Loading binder...</div>
+    <div id="loader" class="loader">loading binder...</div>
 
     <!-- The modal structure is updated -->
     <div id="card-modal" class="modal-overlay">
@@ -35,19 +35,20 @@
             <img id="modal-image" src="" alt="Card Image" />
             <div class="modal-info">
                 <h3 id="modal-card-name">Card Name</h3>
+                <button id="close-modal-btn" class="close-modal-button">close</button>
                 
                 <!-- NEW: Quantity Box -->
                 <div class="modal-quantity-box">
-                    <span>Quantity in Collection</span>
+                    <span>quantity in collection</span>
                     <strong id="modal-quantity">1</strong>
                 </div>
 
                 <div class="modal-price-box">
-                    <span>Scryfall Market Price</span>
+                    <span>market price</span>
                     <strong id="modal-price">$0.00</strong>
                 </div>
                 <a href="#" id="modal-list-link" class="list-link">
-                    For in-depth pricing, view in List Mode →
+                    for in-depth pricing, view in list mode →
                 </a>
             </div>
         </div>

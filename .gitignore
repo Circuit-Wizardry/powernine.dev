@@ -139,3 +139,4 @@ data/AllData.sqlite-wal
 data/AllData.sqlite
 data/AllPrices.json
 data/AllPrintings.sqlite
+data/discord.js

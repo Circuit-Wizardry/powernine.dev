@@ -3,6 +3,7 @@ import path from 'path';
 import sqlite3 from 'sqlite3';
 import axios from 'axios';
 import cliProgress from 'cli-progress';
+import { log } from './discord.js'
 
 // --- Configuration ---
 const DATA_DIR = 'data';
@@ -134,11 +135,16 @@ async function updatePriceHistory(pricesJsonPath, targetDbPath) {
 async function runDailyUpdate() {
     const startTime = Date.now();
     console.log(`[${new Date().toISOString()}] Starting daily data refresh pipeline...`);
+    log('Starting daily data refresh pipeline...');
 
     try {
         // --- Step 1: Download the latest files ---
-        // await downloadFile(URLS.AllPrintings, SOURCE_DB_PATH);
-        // await downloadFile(URLS.AllPricesToday, TODAY_PRICES_PATH);
+        log('Downloading latest data files from MTGJSON...');
+        await downloadFile(URLS.AllPrintings, SOURCE_DB_PATH);
+        log('AllPrintings.sqlite downloaded successfully.');
+        log('Downloading latest price data from MTGJSON...');
+        await downloadFile(URLS.AllPricesToday, TODAY_PRICES_PATH);
+        log('AllPricesToday.json downloaded successfully.');
 
         // --- Step 2: Refresh the main database ---
         console.log(`\nRefreshing printings data in ${TARGET_DB_PATH}...`);
@@ -173,6 +179,7 @@ async function runDailyUpdate() {
         });
 
         console.log(` -> Found ${tablesToCopy.length} tables to copy: ${tablesToCopy.join(', ')}`);
+        log(`Copying ${tablesToCopy.length} tables to main database...`);
         await new Promise((resolve, reject) => {
             db.serialize(() => {
                 db.run('BEGIN TRANSACTION');
@@ -190,9 +197,11 @@ async function runDailyUpdate() {
         // --- Step 3: Update the price history ---
         await updatePriceHistory(TODAY_PRICES_PATH, TARGET_DB_PATH);
         console.log('✅ Price history merged successfully.');
+        log('Daily data refresh pipeline completed successfully.');
 
     } catch (error) {
         console.error('\n❌ An error occurred during the daily update:', error);
+        log(`❌ An error occurred during the daily update: ${error.message}`);
         process.exit(1);
     }
 

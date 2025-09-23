@@ -40,35 +40,31 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
         const response = await fetch(`/api/printings/${encodeURIComponent(cardName)}`);
         if (!response.ok) throw new Error('Card not found');
-        const printingsByFinish = await response.json(); // { nonfoil: [...], foil: [...], etched: [...] }
+        const allPrintings = await response.json();
 
-        // --- 1. Data Restructuring ---
-        // We need to group all finishes by the unique printing ID.
+        // --- Step 2: Data Restructuring (Now on the Frontend) ---
         const printingsMap = new Map();
 
-        // Helper to process an array and add its finish type to the map
-        const processFinish = (printingsArray, finishType) => {
-            if (!printingsArray) return;
-            for (const printing of printingsArray) {
-                if (!printingsMap.has(printing.id)) {
-                    // If this is the first time we see this printing, add it to the map
-                    printingsMap.set(printing.id, {
-                        ...printing,
-                        available_finishes: new Set() // Use a Set to avoid duplicates
-                    });
-                }
-                // Add the finish type to this printing's entry
-                printingsMap.get(printing.id).available_finishes.add(finishType);
+        for (const printing of allPrintings) {
+            if (!printingsMap.has(printing.id)) {
+                // If this is the first time we see this printing, add it to the map
+                printingsMap.set(printing.id, {
+                    ...printing,
+                    // Initialize a Set to store available finishes
+                    available_finishes: new Set()
+                });
             }
-        };
+            
+            // Add all available finishes from the 'finishes' array to our Set
+            printing.finishes.forEach(finish => {
+                printingsMap.get(printing.id).available_finishes.add(finish);
+            });
+        }
 
-        processFinish(printingsByFinish.nonfoil, 'nonfoil');
-        processFinish(printingsByFinish.foil, 'foil');
-        processFinish(printingsByFinish.etched, 'etched');
+        // The map already ensures printings are unique and sorted by release date
+        const combinedPrintings = Array.from(printingsMap.values());
 
-        // Convert the map back to an array, sorted by release date
-        const combinedPrintings = Array.from(printingsMap.values())
-            .sort((a, b) => a.released_at.localeCompare(b.released_at));
+
 
         // --- 2. Rendering Logic ---
         printingsContainer.innerHTML = '';

@@ -10,9 +10,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Modal elements
     const cardModal = document.getElementById('card-modal');
+    const closeModalBtn = document.getElementById('close-modal-btn');
     const modalImage = document.getElementById('modal-image');
     const modalCardName = document.getElementById('modal-card-name');
-    const modalQuantity = document.getElementById('modal-quantity'); // New element
+    const modalQuantity = document.getElementById('modal-quantity');
     const modalPrice = document.getElementById('modal-price');
     const modalListLink = document.getElementById('modal-list-link');
 
@@ -69,10 +70,8 @@ document.addEventListener('DOMContentLoaded', () => {
         modalImage.src = card.image_uris?.large || card.image_uris?.normal || '';
         modalCardName.textContent = card.name;
         
-        // --- NEW: Set quantity from the combined object ---
         modalQuantity.textContent = card.quantity;
 
-        // --- NEW: Select price based on the card's foilType ---
         let price = 'N/A';
         if (card.foilType === 'foil' && card.prices?.usd_foil) {
             price = card.prices.usd_foil;
@@ -104,7 +103,11 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const listResponse = await fetch(`/api/list/${listId}`);
             if (!listResponse.ok) throw new Error('Could not find the imported card list.');
-            const importedCards = await listResponse.json();
+            
+            // --- THIS IS THE FIX ---
+            // The API now returns an object, so we destructure the 'content' property
+            // to get the array of cards.
+            const { content: importedCards } = await listResponse.json();
             
             totalPages = Math.ceil(importedCards.length / CARDS_PER_PAGE) || 1;
 
@@ -116,7 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 const scryfallData = await response.json();
                 
-                // --- NEW: Merge Scryfall data with the user's specific data ---
+                // Merge Scryfall data with the user's specific data
                 return {
                     ...scryfallData, // All the data from Scryfall
                     foilType: cardIdentifier.foilType, // The user's specific foil type
@@ -136,6 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // --- Event Listeners ---
+    closeModalBtn.addEventListener('click', () => cardModal.classList.remove('active'));
     nextButton.addEventListener('click', () => { if (currentPage < totalPages) renderPage(currentPage + 1); });
     prevButton.addEventListener('click', () => { if (currentPage > 1) renderPage(currentPage - 1); });
     cardModal.addEventListener('click', (event) => { if (event.target === cardModal) cardModal.classList.remove('active'); });
