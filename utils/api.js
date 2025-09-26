@@ -11,6 +11,50 @@ import { chromium } from 'playwright'; // Import Playwright
 import { scrapeTcgplayerData } from '../scrapers/tcgplayer.js';
 import { scrapeManaPoolListings } from '../scrapers/manapool.js';
 
+const FIXED_SHIPPING_EXPENSE = 1.25; // The cost of an envelope and materials
+
+const calculateFees = (salePrice, platform) => {
+    if (salePrice <= 0) return 0;
+    const TCGPLAYER_FEE_RATE = 0.1275;
+    const MANAPOOL_FEE_RATE = 0.079;
+    const FLAT_FEE = 0.30;
+    const rate = platform === 'TCGPlayer' ? TCGPLAYER_FEE_RATE : MANAPOOL_FEE_RATE;
+    return (salePrice * rate) + FLAT_FEE;
+};
+
+
+// --- Multer Configuration for PDF Uploads ---
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, './private/uploads/');
+    },
+    filename: (req, file, cb) => {
+        // Create a unique filename: timestamp-originalName.pdf
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, uniqueSuffix + path.extname(file.originalname));
+    }
+});
+const upload = multer({
+    storage: storage,
+    fileFilter: (req, file, cb) => {
+        // --- ADDED LOGGING ---
+        // This will print the exact file details the server sees.
+        console.log('[DEBUG] Multer file filter received:', {
+            fileName: file.originalname,
+            mimeType: file.mimetype
+        });
+        // --- END LOGGING ---
+
+        if (file.mimetype === "application/pdf") {
+            cb(null, true);
+        } else {
+            // Reject the file with a specific error message.
+            cb(new Error("File format not supported. Please upload a PDF."), false);
+        }
+    }
+});
+
+
 // The router is a function that accepts the database (db) connection
 export default function(db) {
     const router = express.Router();
@@ -78,8 +122,13 @@ export default function(db) {
 
     // UPDATED: GET all inventory items (selects all new columns)
     router.get('/inventory', (req, res) => {
-        db.all("SELECT * FROM inventory ORDER BY createdAt DESC", [], (err, rows) => {
-            if (err) return res.status(500).json({ error: err.message });
+        // The WHERE clause is the only modification.
+        const sql = "SELECT * FROM inventory WHERE quantity > 0 ORDER BY createdAt DESC";
+        db.all(sql, [], (err, rows) => {
+            if (err) {
+                res.status(500).json({ error: err.message });
+                return;
+            }
             res.json(rows);
         });
     });
@@ -114,7 +163,10 @@ export default function(db) {
         // Add the condition to the parameters array
         const params = [id, name, setCode, collectorNumber, foilType, pricePaid, quantity, tcgplayerId, condition || 'NM'];
         db.run(sql, params, function(err) {
-            if (err) return res.status(400).json({ error: err.message });
+            if (err) {
+              console.error("Failed to add inventory item:", err);
+              return res.status(400).json({ error: err.message });
+            }
             res.status(201).json({ id: id });
         });
     });
@@ -128,6 +180,206 @@ export default function(db) {
             res.status(200).json({ message: 'Item deleted.' });
         });
     });
+
+    router.get('/transactions', (req, res) => {
+        const sql = `
+            SELECT 
+                t.id, t.soldAt, t.platform, t.shippingCost, t.totalSalePrice, t.netProfit, t.packingSlipPath,
+                json_group_array(
+                    json_object(
+                        'name', i.name, 'setCode', i.setCode, 'condition', i.condition, 
+                        'foilType', i.foilType, 'pricePaid', i.pricePaid, 
+                        'salePrice', ti.salePrice, 'quantity', ti.quantity 
+                    )
+                ) as items
+            FROM transactions t
+            JOIN transaction_items ti ON t.id = ti.transactionId
+            JOIN inventory i ON ti.inventoryId = i.id
+            GROUP BY t.id
+            ORDER BY t.soldAt DESC
+        `;
+        db.all(sql, [], (err, rows) => {
+            if (err) {
+                console.error('Error fetching transactions:', err);
+                return res.status(500).json({ error: err.message });
+            }
+            // The JSON function in SQLite returns a string, so we need to parse it
+            rows.forEach(row => {
+                try {
+                    row.items = JSON.parse(row.items);
+                } catch (e) {
+                    console.error('Failed to parse items JSON for transaction ID:', row.id);
+                    row.items = []; // Default to an empty array on failure
+                }
+            });
+            res.json(rows);
+        });
+    });
+
+
+    /**
+     * UPDATED: POST a new transaction with quantities and new profit logic.
+     */
+    router.post('/transactions', express.json(), (req, res) => {
+        const { items, platform, shippingCost: customerPaidShipping } = req.body;
+
+        if (!items || !Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ error: 'Transaction must include at least one item.' });
+        }
+
+        // We begin the transaction here, and every subsequent step is nested
+        // in a callback to guarantee sequential execution.
+        db.run("BEGIN TRANSACTION", function(err) {
+            if (err) return res.status(500).json({ error: `Failed to begin transaction: ${err.message}` });
+
+            const itemIds = items.map(i => i.inventoryId);
+            const placeholders = itemIds.map(() => '?').join(',');
+            const priceQuery = `SELECT id, pricePaid, quantity FROM inventory WHERE id IN (${placeholders})`;
+
+            db.all(priceQuery, itemIds, (err, rows) => {
+                if (err) {
+                    db.run("ROLLBACK");
+                    return res.status(500).json({ error: `Failed to query inventory: ${err.message}` });
+                }
+
+                const dbInventoryMap = new Map(rows.map(row => [row.id, { pricePaid: row.pricePaid, quantity: row.quantity }]));
+                let totalSalePrice = 0, totalPurchasePrice = 0;
+
+                for (const item of items) {
+                    const dbItem = dbInventoryMap.get(item.inventoryId);
+                    if (!dbItem || item.quantity > dbItem.quantity) {
+                        db.run("ROLLBACK");
+                        return res.status(400).json({ error: `Not enough stock for an item.` });
+                    }
+                    totalSalePrice += item.salePrice * item.quantity;
+                    totalPurchasePrice += dbItem.pricePaid * item.quantity;
+                }
+
+                const fees = calculateFees(totalSalePrice, platform);
+                const grossRevenue = totalSalePrice + parseFloat(customerPaidShipping);
+                const totalCost = totalPurchasePrice + fees + FIXED_SHIPPING_EXPENSE;
+                const netProfit = grossRevenue - totalCost;
+                const transactionId = randomUUID();
+
+                const transSql = `INSERT INTO transactions (id, platform, shippingCost, totalSalePrice, netProfit) VALUES (?, ?, ?, ?, ?)`;
+                db.run(transSql, [transactionId, platform, customerPaidShipping, totalSalePrice, netProfit], function(err) {
+                    if (err) {
+                        db.run("ROLLBACK");
+                        return res.status(500).json({ error: `Failed to create transaction record: ${err.message}` });
+                    }
+
+                    // This function will process each item one by one.
+                    function processItems(index) {
+                        if (index >= items.length) {
+                            // All items are processed, commit the transaction.
+                            db.run("COMMIT", (err) => {
+                                if (err) {
+                                    db.run("ROLLBACK");
+                                    return res.status(500).json({ error: `Failed to commit transaction: ${err.message}` });
+                                }
+                                return res.status(201).json({ id: transactionId });
+                            });
+                            return;
+                        }
+
+                        const item = items[index];
+                        const itemSql = `INSERT INTO transaction_items (transactionId, inventoryId, salePrice, quantity) VALUES (?, ?, ?, ?)`;
+                        db.run(itemSql, [transactionId, item.inventoryId, item.salePrice, item.quantity], function(err) {
+                            if (err) {
+                                db.run("ROLLBACK");
+                                return res.status(500).json({ error: `Failed to log transaction item: ${err.message}` });
+                            }
+                            
+                            const invSql = `UPDATE inventory SET quantity = quantity - ? WHERE id = ?`;
+                            db.run(invSql, [item.quantity, item.inventoryId], function(err) {
+                                if (err) {
+                                    db.run("ROLLBACK");
+                                    return res.status(500).json({ error: `Failed to update inventory: ${err.message}` });
+                                }
+                                // Process the next item in the list.
+                                processItems(index + 1);
+                            });
+                        });
+                    }
+
+                    // Start processing with the first item (index 0).
+                    processItems(0);
+                });
+            });
+        });
+    });
+
+    /**
+     * UPDATED: DELETE a transaction and restore the correct inventory quantity.
+     */
+    router.delete('/transactions/:id', (req, res) => {
+        const { id } = req.params;
+        db.serialize(() => {
+            db.run("BEGIN TRANSACTION");
+            db.all("SELECT inventoryId, quantity, packingSlipPath FROM transactions t JOIN transaction_items ti ON t.id = ti.transactionId WHERE t.id = ?", [id], (err, items) => {
+                if (err) { db.run("ROLLBACK"); return res.status(500).json({ error: err.message }); }
+                if (items.length === 0) { db.run("ROLLBACK"); return res.status(404).json({ message: "Transaction not found." }); }
+                
+                const invSql = `UPDATE inventory SET quantity = quantity + ? WHERE id = ?`;
+                const invStmt = db.prepare(invSql);
+                for (const item of items) {
+                    invStmt.run(item.quantity, item.inventoryId);
+                }
+                invStmt.finalize();
+
+                db.run("DELETE FROM transaction_items WHERE transactionId = ?", [id]);
+                db.run("DELETE FROM transactions WHERE id = ?", [id]);
+
+                const slipPath = items[0].packingSlipPath;
+                if (slipPath) {
+                    fs.unlink(path.resolve(slipPath), (unlinkErr) => {
+                        if (unlinkErr) console.error("Failed to delete packing slip file:", unlinkErr);
+                    });
+                }
+
+                db.run("COMMIT", (commitErr) => {
+                    if (commitErr) { db.run("ROLLBACK"); return res.status(500).json({ error: commitErr.message }); }
+                    res.status(200).json({ message: "Transaction deleted and inventory restored." });
+                });
+            });
+        });
+    });
+
+    /**
+     * NEW: Endpoint for uploading a packing slip after a transaction is created.
+     */
+    // router.post('/transactions/:id/packing-slip', (req, res) => {
+    //     const singleUpload = upload.single('packingSlip');
+
+    //     singleUpload(req, res, function(err) {
+    //         // --- This block catches all upload-related errors ---
+    //         if (err instanceof multer.MulterError) {
+    //             // A Multer error occurred (e.g., file too large).
+    //             console.error('[ERROR] Multer error:', err);
+    //             return res.status(400).json({ message: `File upload error: ${err.message}` });
+    //         } else if (err) {
+    //             // A custom error occurred (e.g., our "not a PDF" error).
+    //             console.error('[ERROR] Custom upload error:', err);
+    //             return res.status(400).json({ message: err.message });
+    //         }
+    //         // --- End of error handling ---
+
+    //         // If we get here, the upload was successful.
+    //         const { id } = req.params;
+    //         const packingSlipPath = req.file ? req.file.path : null;
+
+    //         if (!packingSlipPath) {
+    //             return res.status(400).json({ message: 'No file was uploaded or it was rejected.' });
+    //         }
+
+    //         const sql = `UPDATE transactions SET packingSlipPath = ? WHERE id = ?`;
+    //         db.run(sql, [packingSlipPath, id], function(dbErr) {
+    //             if (dbErr) return res.status(500).json({ message: dbErr.message });
+    //             if (this.changes === 0) return res.status(404).json({ message: 'Transaction not found.' });
+    //             res.status(200).json({ message: 'Packing slip uploaded successfully.' });
+    //         });
+    //     });
+    // });
 
 
     // --- Endpoint to create a new, temporary list from a CSV ---
@@ -227,15 +479,28 @@ export default function(db) {
     // --- Endpoint for getting price data from the unified database ---
     router.get('/prices/:setCode/:collectorNumber', (req, res) => {
         const { setCode, collectorNumber } = req.params;
+
+        // Step 1: Find the card's UUID from the 'cards' table using its set and collector number.
         const uuidSql = `SELECT uuid FROM cards WHERE setCode = ? AND number = ?`;
         db.get(uuidSql, [setCode.toUpperCase(), collectorNumber], (err, cardRow) => {
-            if (err || !cardRow) return res.status(404).json({ error: 'Card UUID not found in database.' });
+            if (err) return res.status(500).json({ error: err.message });
+            if (!cardRow) return res.status(404).json({ error: 'Card printing not found in the database.' });
             
-            const mtgjsonUUID = cardRow.uuid;
+            const { uuid } = cardRow;
+
+            // Step 2: Use the UUID to find the price history JSON from the 'price_history' table.
             const priceSql = `SELECT price_json FROM price_history WHERE uuid = ?`;
-            db.get(priceSql, [mtgjsonUUID], (err, priceRow) => {
-                if (err || !priceRow) return res.status(404).json({ error: 'Price data not found for this card.' });
-                res.json(JSON.parse(priceRow.price_json));
+            db.get(priceSql, [uuid], (priceErr, priceRow) => {
+                if (priceErr) return res.status(500).json({ error: priceErr.message });
+                if (!priceRow) return res.status(404).json({ error: 'No price history found for this card.' });
+
+                // Step 3: Parse the JSON string and send it back to the client.
+                try {
+                    const priceData = JSON.parse(priceRow.price_json);
+                    res.json(priceData);
+                } catch (parseError) {
+                    res.status(500).json({ error: 'Failed to parse price data from the database.' });
+                }
             });
         });
     });
@@ -339,8 +604,7 @@ export default function(db) {
                     foilType: foilType,
                 });
             }
-        }
-        
+        }    
         processResults(results, res, db);
     });
     

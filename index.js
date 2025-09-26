@@ -8,7 +8,6 @@ import { exec } from 'child_process';
 import apiRoutes from './utils/api.js';
 import 'dotenv/config';
 import multer from 'multer';
-import path from 'path';
 import fs from 'fs';
 import { initializeCardNameCache } from './utils/card-data.js';
 
@@ -75,16 +74,27 @@ const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READWRITE | sqlite3.OPEN_C
             db.run(`
                 CREATE TABLE IF NOT EXISTS transactions (
                     id TEXT PRIMARY KEY,
-                    inventoryId TEXT NOT NULL,
                     soldAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    salePrice REAL NOT NULL,
-                    shippingCost REAL NOT NULL,
                     platform TEXT NOT NULL,
+                    shippingCost REAL NOT NULL,
+                    totalSalePrice REAL NOT NULL,
                     netProfit REAL NOT NULL,
-                    packingSlipPath TEXT,
+                    packingSlipPath TEXT
+                )
+            `);
+
+            db.run(`
+                CREATE TABLE IF NOT EXISTS transaction_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    transactionId TEXT NOT NULL,
+                    inventoryId TEXT NOT NULL,
+                    salePrice REAL NOT NULL,
+                    quantity INTEGER NOT NULL DEFAULT 1,
+                    FOREIGN KEY (transactionId) REFERENCES transactions (id) ON DELETE CASCADE,
                     FOREIGN KEY (inventoryId) REFERENCES inventory (id)
                 )
             `);
+
 
             cleanupTemporaryLists();
         }
@@ -117,7 +127,7 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 // --- Middleware & API Routes ---
-app.use(auth);
+// app.use(auth);
 app.use(express.static(path.join(__dirname, 'public')));
 initializeCardNameCache();
 app.use('/api', apiRoutes(db));

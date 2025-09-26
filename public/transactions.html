@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transaction History</title>
+    <link rel="stylesheet" href="/transactions-style.css">
+</head>
+<body>
+    <div class="header">
+        <h1>Transaction History</h1>
+        <div class="header-actions">
+            <button id="add-transaction-btn" class="action-btn">＋ Add Transaction</button>
+            <a href="/" class="back-button">← Back to Home</a>
+        </div>
+    </div>
+    
+    <div id="transaction-list-container">
+        </div>
+
+    <div id="transaction-modal" class="modal-background" style="display: none;">
+        <div class="modal-content">
+            <span class="close-button">&times;</span>
+            <div id="modal-content-body">
+                </div>
+        </div>
+    </div>
+
+    <script src="/transactions.js"></script>
+</body>
+</html>

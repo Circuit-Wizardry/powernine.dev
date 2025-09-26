@@ -23,9 +23,9 @@ const URLS = {
  * @returns {object} The merged object.
  */
 function deepMerge(target, source) {
+    // ... (This function is unchanged)
     const isObject = (item) => (item && typeof item === 'object' && !Array.isArray(item));
     const output = { ...target };
-
     if (isObject(target) && isObject(source)) {
         Object.keys(source).forEach(key => {
             if (isObject(source[key])) {
@@ -48,6 +48,7 @@ function deepMerge(target, source) {
  * @param {string} destPath The local path to save the file.
  */
 async function downloadFile(url, destPath) {
+    // ... (This function is unchanged)
     console.log(`\nDownloading ${path.basename(destPath)}...`);
     fs.mkdirSync(path.dirname(destPath), { recursive: true });
     const { data, headers } = await axios({ url, method: 'GET', responseType: 'stream' });
@@ -69,41 +70,35 @@ async function downloadFile(url, destPath) {
  * @param {string} targetDbPath Path to the target SQLite database.
  */
 async function updatePriceHistory(pricesJsonPath, targetDbPath) {
+    // ... (This function is unchanged)
     console.log(`\nMerging daily prices into ${targetDbPath}...`);
     const db = new sqlite3.Database(targetDbPath);
-
     await new Promise((resolve, reject) => {
         const schema = `CREATE TABLE IF NOT EXISTS price_history (uuid TEXT PRIMARY KEY, price_json TEXT NOT NULL);`;
         db.run(schema, (err) => err ? reject(err) : resolve());
     });
     console.log(' -> price_history table verified.');
-
     console.log(` -> Reading ${path.basename(pricesJsonPath)}...`);
     const pricesFileContent = fs.readFileSync(pricesJsonPath, 'utf-8');
     const pricesJson = JSON.parse(pricesFileContent);
     const todayPriceData = pricesJson.data;
     const uuidsToUpdate = Object.keys(todayPriceData);
     console.log(` -> Found ${uuidsToUpdate.length} price updates for today.`);
-
     const progressBar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic);
     progressBar.start(uuidsToUpdate.length, 0);
-
     await new Promise((resolve, reject) => {
         db.serialize(() => {
             db.run('BEGIN TRANSACTION');
             const selectStmt = db.prepare('SELECT price_json FROM price_history WHERE uuid = ?');
             const upsertStmt = db.prepare('INSERT INTO price_history (uuid, price_json) VALUES (?, ?) ON CONFLICT(uuid) DO UPDATE SET price_json = excluded.price_json');
-
             let chain = Promise.resolve();
             for (const uuid of uuidsToUpdate) {
                 chain = chain.then(() => new Promise((next, fail) => {
                     selectStmt.get([uuid], (err, row) => {
                         if (err) return fail(err);
-                        
                         const existingHistory = row ? JSON.parse(row.price_json) : {};
                         const todayData = todayPriceData[uuid];
                         const mergedData = deepMerge(existingHistory, todayData);
-
                         upsertStmt.run([uuid, JSON.stringify(mergedData)], (writeErr) => {
                             progressBar.increment();
                             if (writeErr) return fail(writeErr);
@@ -112,7 +107,6 @@ async function updatePriceHistory(pricesJsonPath, targetDbPath) {
                     });
                 }));
             }
-
             chain.then(() => {
                 selectStmt.finalize();
                 upsertStmt.finalize();
@@ -125,7 +119,6 @@ async function updatePriceHistory(pricesJsonPath, targetDbPath) {
             }).catch(reject);
         });
     });
-    
     await new Promise((res, rej) => db.close(e => e ? rej(e) : res()));
 }
 
@@ -150,9 +143,15 @@ async function runDailyUpdate() {
         console.log(`\nRefreshing printings data in ${TARGET_DB_PATH}...`);
         const db = new sqlite3.Database(TARGET_DB_PATH);
 
+        // --- THIS IS THE CRITICAL CHANGE ---
+        // This query now explicitly preserves your custom tables.
+        const oldObjectsQuery = `
+            SELECT name, type FROM sqlite_master 
+            WHERE name NOT LIKE 'sqlite_%' 
+            AND name NOT IN ('price_history', 'inventory', 'transactions', 'imported_lists', 'transaction_items')
+        `;
         const oldObjects = await new Promise((resolve, reject) => {
-            db.all("SELECT name, type FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND name != 'price_history'",
-                (err, rows) => err ? reject(err) : resolve(rows));
+            db.all(oldObjectsQuery, (err, rows) => err ? reject(err) : resolve(rows));
         });
 
         if (oldObjects.length > 0) {
@@ -210,3 +209,4 @@ async function runDailyUpdate() {
 }
 
 runDailyUpdate();
+

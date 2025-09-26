@@ -183,7 +183,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch('/api/inventory', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(cardData) // cardData now contains quantity
+                body: JSON.stringify(cardData)
             });
             if (!response.ok) throw new Error("Failed to save to inventory.");
             location.reload();
@@ -236,7 +236,11 @@ resultItem.querySelectorAll('.finish-btn').forEach(button => {
                                 return;
                             }
                             const cardToAdd = {
-                                // ... (other properties)
+                                name: printing.name,
+                                setCode: printing.set.toUpperCase(),
+                                collectorNumber: printing.collector_number,
+                                foilType: button.dataset.finish === 'nonfoil' ? 'normal' : button.dataset.finish,
+                                tcgplayerId: printing.tcgplayer_id,
                                 pricePaid: price,
                                 condition: condition,
                                 quantity: quantity
