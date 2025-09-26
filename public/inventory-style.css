@@ -4,7 +4,10 @@
     --text-color: #e0e0e0;
     --primary-color: #4fd1c5;
     --border-color: #444;
+    --success-color: #4caf50;
+    --warning-color: #ff9800;
 }
+
 
 body {
     background-color: var(--bg-color);
@@ -358,30 +361,205 @@ h1 { margin: 0; }
     cursor: not-allowed;
 }
 
-#myProgress {
-  width: 100%;
-  background-color: #2c2c2c;
-  margin: 10px;
+#inventory-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+.inventory-item {
+    background-color: var(--surface-color);
+    border-radius: 8px;
+    padding: 16px;
+    display: grid;
+    grid-template-columns: 150px 1fr;
+    gap: 20px;
+    border-left: 5px solid var(--primary-color);
+}
+.inventory-item-main {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px 24px;
+}
+.info-block {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.info-block h3 {
+    margin: 0;
+    font-size: 1.1em;
+    color: #fff;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 6px;
+}
+.price-line {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.9em;
+}
+.price-line span:first-child { color: #aaa; }
+.price-line span:last-child { font-weight: bold; }
+.price-paid { color: var(--warning-color); }
+.price-market { color: var(--primary-color); }
+.price-scraped { color: #81d4fa; }
+.price-rec { color: var(--success-color); }
+
+.inventory-image {
+    width: 130px;
+    height: 180px;
+    border-radius: 6px;
+    object-fit: cover;
+    justify-self: center;
+    align-self: start;
 }
 
-#myBar {
-  width: 1%;
-  height: 30px;
-  background-color: green;
+.delete-btn {
+    background: none;
+    border: 1px solid #555;
+    color: #ccc;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.9em;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+    justify-self: end;
+    align-self: start;
 }
 
-#card-previewer {
-    display: none; /* Hidden by default */
-    position: fixed; /* Floats over the page content */
-    z-index: 1000; /* Stays on top of other elements */
-    pointer-events: none; /* Prevents the preview from blocking mouse events */
-    /* Add a little offset from the cursor */
-    padding: 15px; 
+/* Badge for displaying condition on an inventory item */
+.condition-badge {
+    font-size: 0.8em;
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 4px;
+    vertical-align: middle; /* Ensures it aligns neatly with the foil badge */
+    color: white;
+    margin-left: 8px;
+}
+.condition-badge.condition-nm { background-color: #4CAF50; } /* Green */
+.condition-badge.condition-lp { background-color: #8BC34A; } /* Light Green */
+.condition-badge.condition-mp { background-color: #FFC107; } /* Amber */
+.condition-badge.condition-hp { background-color: #FF9800; } /* Orange */
+.condition-badge.condition-dmg { background-color: #F44336; } /* Red */
+
+/* Styles for the new "Add Card" inline form */
+.add-form-container {
+    grid-column: 1 / -1; /* Span the full width of the result item */
+    padding: 10px;
+    background-color: #333;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    border-top: 1px solid var(--border-color);
+    margin-top: 10px;
+}
+.condition-selector {
+    display: flex;
+    gap: 5px;
+}
+.condition-selector button {
+    background-color: #555;
+    border: 1px solid #666;
+    color: #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.condition-selector button.selected {
+    background-color: var(--primary-color);
+    color: var(--bg-color);
+    border-color: var(--primary-color);
+}
+.price-input {
+    width: 80px;
+    padding: 5px;
+    background-color: var(--bg-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+    border-radius: 4px;
+}
+.add-btn {
+    background-color: var(--success-color);
+    color: white;
+    border: none;
+    padding: 5px 15px;
+    border-radius: 4px;
+    font-weight: bold;
+    cursor: pointer;
 }
 
-#card-previewer img {
-    width: 280px; /* Or whatever size you prefer */
-    height: auto;
-    border-radius: 12px;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+.foil-badge {
+    display: inline-block;
+    font-size: 0.8em;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    color: #1a1a1a;
+    text-transform: capitalize;
+    margin-left: 4px;
+    vertical-align: middle; /* Aligns badge with text and other badges */
+}
+
+/* Hide the badge entirely if the card is 'normal' (non-foil) */
+.foil-badge.foil-normal {
+    display: none;
+}
+
+/* A shiny rainbow gradient for 'Foil' cards */
+.foil-badge.foil-foil {
+    color: white;
+    background: linear-gradient(45deg, #ffc107, #ffeb3b, #8bc34a, #00bcd4, #9c27b0, #ff5722);
+    text-shadow: 1px 1px 2px black;
+}
+
+/* A simple metallic look for 'Etched' cards */
+.foil-badge.foil-etched { 
+    background-color: #bdbdbd; 
+    border: 1px solid #757575; 
+}
+
+
+.quantity-display {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background-color: #3a3a3a;
+    border-radius: 15px;
+    padding: 2px 8px;
+    margin-left: 12px;
+    font-size: 0.9em;
+    vertical-align: middle;
+}
+.quantity-btn {
+    background: none;
+    border: none;
+    color: var(--primary-color);
+    font-size: 1.2em;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 0 5px;
+}
+.quantity-display span {
+    font-weight: bold;
+    color: #fff;
+}
+/* Badges container for better layout */
+.badges {
+    margin-top: 8px;
+}
+
+/* Quantity input in the "Add Card" form */
+.add-form-container .quantity-input {
+    width: 60px;
+    text-align: center;
+    padding: 5px;
+    background-color: var(--bg-color);
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+    border-radius: 4px;
+}
+
+.link {
+    color: var(--primary-color);
+    text-decoration: none;
+    transition: text-decoration 0.2s;
 }

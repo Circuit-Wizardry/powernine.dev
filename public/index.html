@@ -14,6 +14,7 @@
             <img src="./media/import-csv.png" class="tab-button" id="import-csv-btn">
             <img src="./media/create-list.png" class="tab-button" id="create-list-btn">
             <img src="./media/start-trade.png" class="tab-button" id="start-trade-btn">
+            <a href="/inventory.html" class="tab-button">Manage Inventory</a>
         </div>
 
         <div class="title">powernine.dev</div>
@@ -24,16 +25,29 @@
     <div id="import-modal" class="modal-background" style="display: none;">
         <div class="modal-content">
             <span class="close-button">&times;</span>
-            <h2>Import CSV</h2>
-            <p>Select a .csv file to upload. Max file size: 5MB.</p>
-            <input type="file" id="csv-file-input" accept=".csv">
-            <button id="upload-button">Upload and Process</button>
+            <h2>Import Collection</h2>
+
+            <!-- File Upload Section -->
+            <p>Select a .csv or .txt file to upload.</p>
+            <input type="file" id="csv-file-input" accept=".csv,.txt">
+            <button id="upload-button">Upload File</button>
             <p id="upload-message" style="margin-top: 1rem;"></p>
+
+            <!-- Separator -->
+            <div class="separator">OR</div>
+
+            <!-- Paste Text Section -->
+            <p>Paste your list directly into the box below.</p>
+            <textarea id="paste-text-input" placeholder="1 Sol Ring (CM2) 237&#10;4 Brainstorm (STA) 13 *F*"></textarea>
+            <button id="paste-button">Process Pasted Text</button>
+            <p id="paste-message" style="margin-top: 1rem;"></p>
+
         </div>
     </div>
 
     <div id="printings-container"></div>
     <script src="/search.js"></script>
     <script src="/import.js"></script>
+    <script src="/create-list.js"></script>
 </body>
 </html>

@@ -1,28 +1,22 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const importModal = document.getElementById('import-modal');
+    // --- Existing DOM Elements ---
     const importBtn = document.getElementById('import-csv-btn');
-    const closeBtn = document.querySelector('.close-button');
-    const uploadBtn = document.getElementById('upload-button');
+    const modal = document.getElementById('import-modal');
+    const closeBtn = modal.querySelector('.close-button');
     const fileInput = document.getElementById('csv-file-input');
+    const uploadBtn = document.getElementById('upload-button');
     const uploadMessage = document.getElementById('upload-message');
+    
+    // --- NEW DOM Elements ---
+    const pasteInput = document.getElementById('paste-text-input');
+    const pasteBtn = document.getElementById('paste-button');
+    const pasteMessage = document.getElementById('paste-message');
 
-    // Show the modal
-    importBtn.addEventListener('click', () => {
-        importModal.style.display = 'flex';
-    });
-
-    // Hide the modal
-    const closeModal = () => {
-        importModal.style.display = 'none';
-        fileInput.value = ''; // Reset file input
-        uploadMessage.textContent = ''; // Clear message
-    };
-
-    closeBtn.addEventListener('click', closeModal);
+    // --- Event Listeners for Modal ---
+    importBtn.addEventListener('click', () => modal.style.display = 'flex');
+    closeBtn.addEventListener('click', () => modal.style.display = 'none');
     window.addEventListener('click', (event) => {
-        if (event.target === importModal) {
-            closeModal();
-        }
+        if (event.target === modal) modal.style.display = 'none';
     });
 
     // Handle the file upload
@@ -67,6 +61,43 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             // Handle error
             alert(`Error: ${result.message}`);
+        }
+    });
+    
+    // --- NEW: Event Listener for PASTED TEXT ---
+    pasteBtn.addEventListener('click', async () => {
+      console.log('Processing pasted text...');
+        const textContent = pasteInput.value.trim();
+        if (!textContent) {
+            pasteMessage.textContent = 'Please paste some text first.';
+            pasteMessage.style.color = '#ff8a80';
+            return;
+        }
+
+        pasteBtn.disabled = true;
+        pasteBtn.textContent = 'Processing...';
+        pasteMessage.textContent = '';
+
+        try {
+            const response = await fetch('/api/import-text', {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: textContent
+            });
+
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.message || 'Failed to process pasted text.');
+            }
+
+            // Success! Redirect to the new list page
+            window.location.href = `/list/${result.listId}`;
+
+        } catch (error) {
+            pasteMessage.textContent = `Error: ${error.message}`;
+            pasteMessage.style.color = '#ff8a80';
+            pasteBtn.disabled = false;
+            pasteBtn.textContent = 'Process Pasted Text';
         }
     });
 });

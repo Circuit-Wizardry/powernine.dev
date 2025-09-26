@@ -1,10 +1,15 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import basicAuth from 'basic-auth';
 import sqlite3Base from 'sqlite3';
 import cron from 'node-cron';
 import { exec } from 'child_process';
 import apiRoutes from './utils/api.js';
+import 'dotenv/config';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import { initializeCardNameCache } from './utils/card-data.js';
 
 // --- Workaround for __dirname in ES Modules ---
@@ -13,6 +18,20 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// --- Authentication Middleware ---
+const auth = (req, res, next) => {
+    const user = basicAuth(req);
+    const appUser = process.env.APP_USER || 'admin';
+    const appPassword = process.env.APP_PASSWORD || 'password';
+
+    if (!user || user.name !== appUser || user.pass !== appPassword) {
+        res.setHeader('WWW-Authenticate', 'Basic realm="Enter credentials"');
+        return res.status(401).send('Authentication required.');
+    }
+    return next();
+};
+
 
 // --- Database Connection and Setup ---
 const sqlite3 = sqlite3Base.verbose();
@@ -24,17 +43,54 @@ const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READWRITE | sqlite3.OPEN_C
             console.error('Error connecting to AllData.sqlite:', err.message);
         } else {
             console.log('Successfully connected to AllData.sqlite database.');
+            
+            // Existing table (no errors here)
             db.run(`
                 CREATE TABLE IF NOT EXISTS imported_lists (
-                    id TEXT PRIMARY KEY, content TEXT NOT NULL,
-                    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, isPermanent BOOLEAN DEFAULT 0
+                    id TEXT PRIMARY KEY,
+                    content TEXT NOT NULL,
+                    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    isPermanent BOOLEAN DEFAULT 0
                 )
             `);
-            // --- Run the cleanup function immediately after connecting ---
+            db.run(`
+                CREATE TABLE IF NOT EXISTS inventory (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    setCode TEXT NOT NULL,
+                    collectorNumber TEXT NOT NULL,
+                    foilType TEXT NOT NULL,
+                    pricePaid REAL NOT NULL,
+                    quantity INTEGER NOT NULL,
+                    tcgplayerId TEXT,
+                    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    tcgLow REAL,
+                    manaPoolLow REAL,
+                    pricesLastUpdatedAt DATETIME,
+                    
+                    -- NEW COLUMN --
+                    condition TEXT NOT NULL DEFAULT 'NM'
+                )
+            `); 
+            db.run(`
+                CREATE TABLE IF NOT EXISTS transactions (
+                    id TEXT PRIMARY KEY,
+                    inventoryId TEXT NOT NULL,
+                    soldAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    salePrice REAL NOT NULL,
+                    shippingCost REAL NOT NULL,
+                    platform TEXT NOT NULL,
+                    netProfit REAL NOT NULL,
+                    packingSlipPath TEXT,
+                    FOREIGN KEY (inventoryId) REFERENCES inventory (id)
+                )
+            `);
+
             cleanupTemporaryLists();
         }
     }
 );
+
 
 /**
  * Deletes any temporary lists that are older than 24 hours.
@@ -55,8 +111,13 @@ function cleanupTemporaryLists() {
     });
 }
 
+const uploadDir = './private/uploads';
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
 
 // --- Middleware & API Routes ---
+app.use(auth);
 app.use(express.static(path.join(__dirname, 'public')));
 initializeCardNameCache();
 app.use('/api', apiRoutes(db));
@@ -82,10 +143,7 @@ cron.schedule('0 12 * * *', () => { // Runs at 12:00 PM UTC (8 AM EDT)
     });
 });
 
-// --- REMOVED ---
-// The hourly cron job for cleanup is no longer needed.
-// console.log('Scheduling hourly cleanup of temporary lists...');
-// cron.schedule('0 * * * *', () => { ... });
+app.use(express.json())
 
 // --- Server Start ---
 app.listen(PORT, () => {

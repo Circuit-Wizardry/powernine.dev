@@ -13,6 +13,7 @@
     <div class="header">
         <h1>imported collection</h1>
         <div class="header-controls">
+            </div>
             <div id="save-warning" class="warning-banner" style="display: none;">
               this list is temporary and will be deleted automatically. click "save list" to keep it permanently.
             </div>
@@ -20,6 +21,21 @@
             <a href="/" id="switch-view-btn" class="view-button">Switch to Binder</a>
             <a href="/" class="back-button">← import new list</a>
         </div>
+    </div>
+    
+    <div class="add-card-section">
+    <h2>Add Card to List</h2>
+      <div class="add-card-form">
+        <input type="text" id="add-card-search" class="search-input" placeholder="Search for a card to add...">
+        <div id="add-card-results"></div>
+    </div>
+    </div>
+
+    <div class="progress-container">
+      <span id="progress-text"></span>
+      <div id="myProgress">
+        <div id="myBar"></div>
+      </div>
     </div>
 
     <div class="toolbar">
@@ -41,6 +57,10 @@
 
     <!-- Your script is loaded last -->
     <script src="/list.js"></script>
+
+    <div id="card-previewer">
+        <img id="card-preview-image" src="" alt="Card Preview">
+    </div>
 </body>
 </html>
 

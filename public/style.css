@@ -227,3 +227,55 @@ body {
 .modal-content button:hover {
     background-color: #2C7A7B;
 }
+.separator {
+    display: flex;
+    align-items: center;
+    text-align: center;
+    color: #888;
+    margin: 2rem 0;
+}
+.separator::before, .separator::after {
+    content: '';
+    flex: 1;
+    border-bottom: 1px solid #444;
+}
+.separator:not(:empty)::before {
+    margin-right: .25em;
+}
+.separator:not(:empty)::after {
+    margin-left: .25em;
+}
+
+#paste-text-input {
+    width: 100%;
+    min-height: 150px;
+    background-color: #1a1a1a;
+    color: #e0e0e0;
+    border: 1px solid #444;
+    border-radius: 8px;
+    padding: 10px;
+    font-family: monospace;
+    font-size: 0.9em;
+    resize: vertical;
+    box-sizing: border-box;
+    margin-bottom: 1rem;
+}
+
+#paste-button {
+    width: 100%;
+    padding: 12px;
+    background-color: #4fd1c5;
+    color: #1a1a1a;
+    border: none;
+    border-radius: 8px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+#paste-button:hover {
+    background-color: #2dd4bf;
+}
+#paste-button:disabled {
+    background-color: #555;
+    cursor: not-allowed;
+}
