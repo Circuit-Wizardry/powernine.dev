@@ -127,7 +127,7 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 // --- Middleware & API Routes ---
-// app.use(auth);
+app.use(auth);
 app.use(express.static(path.join(__dirname, 'public')));
 initializeCardNameCache();
 app.use('/api', apiRoutes(db));

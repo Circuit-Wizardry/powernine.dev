@@ -84,27 +84,16 @@ export default function(db) {
             });
             const page = await context.newPage();
             
-            const tcgData = await scrapeTcgplayerData(page, tcgplayerId, foilType);
+            const tcgData = await scrapeTcgplayerData(page, tcgplayerId, foilType, condition ? condition : "DMG");
             const cardSlug = cardName.toLowerCase().replace(/\s/g, '-').replace(/[^a-z0-9-]/g, '');
             const manaPoolUrl = `https://manapool.com/card/${setCode.toLowerCase()}/${collectorNumber}/${cardSlug}`;
-            const mpData = await scrapeManaPoolListings(page, manaPoolUrl, foilType);
+            const mpData = await scrapeManaPoolListings(page, manaPoolUrl, foilType, condition ? condition : "DMG");
 
             let tcgLow;
             let manaPoolLow;
 
-            if (condition) {
-                // Logic for inventory.js: get price for a specific condition
-                tcgLow = tcgData.lowestPrices[condition];
-                manaPoolLow = mpData.lowestPrices[condition];
-            } else {
-                // Logic for list.js: get the absolute lowest price from all conditions
-                const tcgPrices = Object.values(tcgData.lowestPrices).filter(p => p > 0);
-                tcgLow = tcgPrices.length > 0 ? Math.min(...tcgPrices) : null;
-
-                const mpPrices = Object.values(mpData.lowestPrices).filter(p => p > 0);
-                manaPoolLow = mpPrices.length > 0 ? Math.min(...mpPrices) : null;
-            }
-
+            tcgLow = tcgData.cheapestPrice;
+            manaPoolLow = mpData.cheapestPrice;
             console.log(`✅ Scrape successful: TCG=${tcgLow}, MP=${manaPoolLow}`);
             
             res.json({
