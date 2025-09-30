@@ -494,6 +494,108 @@ export default function(db) {
         });
     });
 
+    // --- Endpoint for getting card identifiers from the unified database ---
+    router.get('/cards/cardIdentifiers/:setCode/:collectorNumber', (req, res) => {
+        const { setCode, collectorNumber } = req.params;
+
+        // Step 1: Find the card's UUID from the 'cards' table using its set and collector number.
+        const uuidSql = `SELECT uuid FROM cards WHERE setCode = ? AND number = ?`;
+        db.get(uuidSql, [setCode.toUpperCase(), collectorNumber], (err, cardRow) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            if (!cardRow) {
+                return res.status(404).json({ error: 'Card printing not found in the database.' });
+            }
+            
+            const { uuid } = cardRow;
+
+            // Step 2: Use the UUID to find the card's identifiers from the 'cardIdentifiers' table.
+            const identifiersSql = `SELECT * FROM cardIdentifiers WHERE uuid = ?`;
+            db.get(identifiersSql, [uuid], (identifiersErr, identifiersRow) => {
+                if (identifiersErr) {
+                    return res.status(500).json({ error: identifiersErr.message });
+                }
+                if (!identifiersRow) {
+                    return res.status(404).json({ error: 'No identifiers found for this card.' });
+                }
+
+                // Step 3: Send the identifiers JSON object back to the client.
+                res.json(identifiersRow);
+            });
+        });
+    });
+
+    // --- Endpoint for getting a card's data from the 'cards' table ---
+    router.get('/cards/card/:setCode/:collectorNumber', (req, res) => {
+        const { setCode, collectorNumber } = req.params;
+
+        // Find the card in the 'cards' table using its set and collector number.
+        const cardSql = `SELECT * FROM cards WHERE setCode = ? AND number = ?`;
+        db.get(cardSql, [setCode.toUpperCase(), collectorNumber], (err, cardRow) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            if (!cardRow) {
+                return res.status(404).json({ error: 'Card not found in the database.' });
+            }
+
+            // Send the card data back to the client.
+            res.json(cardRow);
+        });
+    });
+
+    // --- Endpoint for getting a set's data from the 'sets' table ---
+    router.get('/sets/:setCode', (req, res) => {
+        const { setCode } = req.params;
+
+        // Find the set in the 'sets' table using its set code.
+        const setSql = `SELECT * FROM sets WHERE code = ?`;
+        db.get(setSql, [setCode.toUpperCase()], (err, setRow) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            if (!setRow) {
+                return res.status(404).json({ error: 'Set not found in the database.' });
+            }
+
+            // Send the set data back to the client.
+            res.json(setRow);
+        });
+    });
+
+    // --- Endpoint for getting card purchase URLs from the unified database ---
+    router.get('/cards/purchaseUrls/:setCode/:collectorNumber', (req, res) => {
+        const { setCode, collectorNumber } = req.params;
+
+        // Step 1: Find the card's UUID from the 'cards' table using its set and collector number.
+        const uuidSql = `SELECT uuid FROM cards WHERE setCode = ? AND number = ?`;
+        db.get(uuidSql, [setCode.toUpperCase(), collectorNumber], (err, cardRow) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            if (!cardRow) {
+                return res.status(404).json({ error: 'Card printing not found in the database.' });
+            }
+            
+            const { uuid } = cardRow;
+
+            // Step 2: Use the UUID to find the card's purchase URLs from the 'cardPurchaseUrls' table.
+            const purchaseUrlsSql = `SELECT * FROM cardPurchaseUrls WHERE uuid = ?`;
+            db.get(purchaseUrlsSql, [uuid], (purchaseUrlsErr, purchaseUrlsRow) => {
+                if (purchaseUrlsErr) {
+                    return res.status(500).json({ error: purchaseUrlsErr.message });
+                }
+                if (!purchaseUrlsRow) {
+                    return res.status(404).json({ error: 'No purchase URLs found for this card.' });
+                }
+
+                // Step 3: Send the purchase URLs JSON object back to the client.
+                res.json(purchaseUrlsRow);
+            });
+        });
+    });
+
     // --- Other utility routes ---
     router.get('/card-names', (req, res) => res.json(getCardNames()));
     router.get('/printings/:cardName', async (req, res) => {

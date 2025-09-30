@@ -9,12 +9,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const inventoryContainer = document.getElementById('inventory-container');
     const addCardSearch = document.getElementById('add-card-search');
     const addCardResults = document.getElementById('add-card-results');
+    const exportBtn = document.getElementById('export-inventory-btn');
 
     // --- State ---
     let inventory = [];
 
-    // --- Frontend rate-limiting queue for Scryfall detail fetches ---
-    const RATE_LIMIT_MS = 125; // 1000ms / 8 requests per second
+    const RATE_LIMIT_MS = 5;
     const detailRequestQueue = [];
     let isDetailRequestProcessing = false;
 
@@ -108,17 +108,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const fetchSingleCardDetails = async (item) => {
         try {
-            const [scryfallResponse, priceResponse] = await Promise.all([
-                fetch(`https://api.scryfall.com/cards/${item.setCode.toLowerCase()}/${item.collectorNumber}`),
+            const [cardIdentifiers, priceResponse] = await Promise.all([
+                fetch(`/api/cards/cardIdentifiers/${item.setCode}/${item.collectorNumber}`),
                 fetch(`/api/prices/${item.setCode}/${item.collectorNumber}`)
             ]);
-            if (!scryfallResponse.ok) throw new Error('Scryfall API fail');
 
-            const scryfallData = await scryfallResponse.json();
+            const cardIdentifiersData = cardIdentifiers.ok ? await cardIdentifiers.json() : null;
             const priceData = priceResponse.ok ? await priceResponse.json() : null;
 
-            item.imageUrl = scryfallData.image_uris?.normal || 'https://placehold.co/245x342/1a1a1a/e0e0e0?text=N/A';
-            item.tcgplayerId = scryfallData.tcgplayer_id;
+            item.imageUrl = `https://tcgplayer-cdn.tcgplayer.com/product/${cardIdentifiersData.tcgplayerProductId}_in_1000x1000.jpg` || 'https://placehold.co/245x342/1a1a1a/e0e0e0?text=N/A';
+            item.tcgplayerId = cardIdentifiersData.tcgplayerProductId;
             item.tcgMarketPrice = getLatestPrice(priceData?.paper?.tcgplayer?.retail?.[item.foilType]);
 
             const tcgBreakeven = calculateBreakevenPrice(item.pricePaid, TCGPLAYER_FEE_RATE);
@@ -193,6 +192,41 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    const exportInventoryToTxt = async () => {
+        const exportBtn = document.getElementById('export-inventory-btn');
+        if (inventory.length === 0) {
+            alert("Your inventory is empty. Nothing to copy.");
+            return;
+        }
+
+        // Sort inventory alphabetically by card name.
+        const sortedInventory = [...inventory].sort((a, b) => a.name.localeCompare(b.name));
+
+        let txtContent = "";
+        sortedInventory.forEach(item => {
+            const foilMarker = item.foilType !== 'normal' ? ' *F*' : '';
+            txtContent += `${item.quantity} ${item.name} (${item.setCode}) ${item.collectorNumber}${foilMarker}\n`;
+        });
+
+        try {
+            // Use the modern Clipboard API to write the text.
+            await navigator.clipboard.writeText(txtContent);
+            
+            // Provide visual feedback to the user.
+            const originalText = exportBtn.textContent;
+            exportBtn.textContent = 'Copied!';
+            exportBtn.disabled = true;
+            setTimeout(() => {
+                exportBtn.textContent = originalText;
+                exportBtn.disabled = false;
+            }, 2000); // Reset button after 2 seconds
+
+        } catch (err) {
+            console.error('Failed to copy text: ', err);
+            alert('Could not copy to clipboard. Check browser permissions.');
+        }
+    };
+
     const searchForPrintings = async (cardName) => {
         if (!cardName || cardName.length < 3) {
             addCardResults.innerHTML = ''; return;
@@ -214,7 +248,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="finishes">${finishesHTML}</div>
                     <div class="add-form-container"></div>`;
                 addCardResults.appendChild(resultItem);
-resultItem.querySelectorAll('.finish-btn').forEach(button => {
+                resultItem.querySelectorAll('.finish-btn').forEach(button => {
                     button.addEventListener('click', () => {
                         const formContainer = resultItem.querySelector('.add-form-container');
                         formContainer.innerHTML = `
@@ -338,6 +372,10 @@ resultItem.querySelectorAll('.finish-btn').forEach(button => {
     addCardSearch.addEventListener('input', () => {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => searchForPrintings(addCardSearch.value), 300);
+    });
+
+    exportBtn.addEventListener('click', () => {
+        exportInventoryToTxt();
     });
 
     inventoryContainer.addEventListener('click', (event) => {

@@ -289,20 +289,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const fetchSingleCardDetails = async (card) => {
         try {
-            const [scryfallResponse, priceResponse] = await Promise.all([
-                fetch(`https://api.scryfall.com/cards/${card.setCode.toLowerCase()}/${card.collectorNumber}`),
-                fetch(`/api/prices/${card.setCode}/${card.collectorNumber}`)
+            const [rawCardInfo, rawSetInfo, cardIdentifiers, priceResponse, rawPurchaseUrls] = await Promise.all([
+                fetch(`/api/cards/card/${card.setCode}/${card.collectorNumber}`),
+                fetch(`/api/sets/${card.setCode}`),
+                fetch(`/api/cards/cardIdentifiers/${card.setCode}/${card.collectorNumber}`),
+                fetch(`/api/prices/${card.setCode}/${card.collectorNumber}`),
+                fetch(`/api/cards/purchaseUrls/${card.setCode}/${card.collectorNumber}`),
             ]);
 
-            if (!scryfallResponse.ok) throw new Error('Scryfall API failed');
-
-            const scryfallData = await scryfallResponse.json();
+            const cardIdentifiersData = cardIdentifiers.ok ? await cardIdentifiers.json() : null;
             const priceData = priceResponse.ok ? await priceResponse.json() : null;
+            const cardInfo = rawCardInfo.ok ? await rawCardInfo.json() : null;
+            const setInfo = rawSetInfo.ok ? await rawSetInfo.json() : null;
+            const purchaseUrls = rawPurchaseUrls ? await rawPurchaseUrls.json() : null;
+
+            card.imageUrl = `https://tcgplayer-cdn.tcgplayer.com/product/${cardIdentifiersData.tcgplayerProductId}_in_1000x1000.jpg` || 'https://placehold.co/245x342/1a1a1a/e0e0e0?text=N/A';
+            card.tcgplayerId = cardIdentifiersData.tcgplayerProductId;
             
-            card.name = scryfallData.name;
-            card.setName = scryfallData.set_name;
-            card.imageUrl = scryfallData.image_uris?.small || 'https://placehold.co/63x88/2c2c2c/e0e0e0?text=N/A';
-            card.tcgplayerId = scryfallData.tcgplayer_id;
+            card.flavorName = cardInfo.flavorName;
+            card.name = cardInfo.name;
+            card.setName = setInfo.name;
 
             const paperPrices = priceData?.paper;
 
@@ -310,7 +316,7 @@ document.addEventListener('DOMContentLoaded', () => {
             card.ckPrice = getLatestPrice(paperPrices?.cardkingdom?.retail?.[card.foilType]);
             card.tcgHistory = paperPrices?.tcgplayer?.retail?.[card.foilType];
             card.ckHistory = paperPrices?.cardkingdom?.retail?.[card.foilType];
-            card.purchase_uris = scryfallData.purchase_uris?.tcgplayer || '#';
+            card.purchase_uris = purchaseUrls.tcgplayer || '#';
             card.isLoaded = true;
 
             totalCollectionValue += card.price * card.quantity;
@@ -339,7 +345,7 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     const fetchAllCardDetails = async () => {
         totalCollectionValue = 0;
-        const delayBetweenRequests = 200;
+        const delayBetweenRequests = 10;
 
         // Loop through each card individually
         for (const card of allCards) {

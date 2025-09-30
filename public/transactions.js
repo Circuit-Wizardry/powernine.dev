@@ -3,7 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let transactions = [];
     let inventory = [];
     let stagedItems = []; // Holds items for the current transaction before submission
-    const TCGPLAYER_FEE_RATE = 0.1275;
+    const TCGPLAYER_FEE_RATE = 0.1075;
     const MANAPOOL_FEE_RATE = 0.079;
     const FIXED_SHIPPING_EXPENSE = 1.25; // Estimated fixed cost per transaction
     const FLAT_FEE = 0.30;
@@ -45,11 +45,13 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // --- Helper Functions ---
-    const calculateFees = (salePrice, platform) => {
+    const calculateFees = (salePrice, shipping, platform) => {
         if (salePrice <= 0) return 0;
-        const rate = platform === 'TCGPlayer' ? TCGPLAYER_FEE_RATE : MANAPOOL_FEE_RATE;
-        return (salePrice * rate) + FLAT_FEE;
+        const rate = platform === 'TCGPlayer' ? TCGPLAYER_FEE_RATE : (platform === 'ManaPool' ? MANAPOOL_FEE_RATE : 0);
+        if (rate === 0) return 0; // No fees for independent sales
+        return ((salePrice + shipping) * rate) + FLAT_FEE;
     };
+
     const formatDate = (dateString) => new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     const getLatestPrice = (priceHistory) => {
         if (!priceHistory || typeof priceHistory !== 'object' || Object.keys(priceHistory).length === 0) return 0;
@@ -101,7 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <hr>
                 <div class="form-grid">
                     <div class="form-group"><label for="shippingCost">Shipping Cost ($):</label><input type="number" name="shippingCost" id="shippingCost" step="0.01" value="0.00" required></div>
-                    <div class="form-group"><label for="platform">Platform:</label><select name="platform" id="platform" required><option value="TCGPlayer">TCGPlayer</option><option value="ManaPool">ManaPool</option></select></div>
+                    <div class="form-group"><label for="platform">Platform:</label><select name="platform" id="platform" required><option value="TCGPlayer">TCGPlayer</option><option value="ManaPool">ManaPool</option><option value="independent">Independent</option></select></div>
                 </div>
                 <div class="profit-preview" id="profit-preview"></div>
                 <button type="submit" class="action-btn">Save Transaction</button>
@@ -149,7 +151,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const openViewModal = (transaction) => {
         const totalPurchasePrice = transaction.items.reduce((acc, item) => acc + item.pricePaid, 0);
-        const fees = calculateFees(transaction.totalSalePrice, transaction.platform);
+        const fees = calculateFees(transaction.totalSalePrice, transaction.shippingCost, transaction.platform);
         modalContentBody.innerHTML = `
             <h2>Transaction Details</h2>
             <div class="details-grid">
@@ -159,8 +161,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="price-line"><span>Platform:</span><span>${transaction.platform}</span></div>
                     <hr>
                     <div class="price-line"><span>Total Sale Price:</span><span class="profit">+ $${transaction.totalSalePrice.toFixed(2)}</span></div>
+                    <div class="price-line"><span>Shipping Cost:</span><span class="profit">+ $${transaction.shippingCost.toFixed(2)}</span></div>
                     <div class="price-line"><span>Platform Fees:</span><span class="loss">- $${fees.toFixed(2)}</span></div>
-                    <div class="price-line"><span>Shipping Cost:</span><span class="loss">- $${transaction.shippingCost.toFixed(2)}</span></div>
                     <div class="price-line"><span>Total Purchase Price:</span><span class="loss">- $${totalPurchasePrice.toFixed(2)}</span></div>
                     <hr>
                     <div class="price-line total">
@@ -198,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const customerPaidShipping = parseFloat(form.elements.shippingCost.value) || 0;
         const platform = form.elements.platform.value;
-        const fees = calculateFees(totalSalePrice, platform);
+        const fees = calculateFees(totalSalePrice, customerPaidShipping, platform);
 
         // New, more accurate profit calculation
         const grossRevenue = totalSalePrice + customerPaidShipping;
@@ -207,6 +209,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const profitClass = netProfit >= 0 ? 'profit' : 'loss';
         previewEl.innerHTML = `
             <div class="price-line"><span>Total Sale Price:</span><span>$${totalSalePrice.toFixed(2)}</span></div>
+            <div class="price-line"><span>Shipping:</span><span class="profit">+ $${customerPaidShipping.toFixed(2)}</span></div>
             <div class="price-line"><span>Platform Fees:</span><span class="loss">- $${fees.toFixed(2)}</span></div>
             <div class="price-line"><span>Total Purchase Price:</span><span class="loss">- $${totalPurchasePrice.toFixed(2)}</span></div>
             <hr>
