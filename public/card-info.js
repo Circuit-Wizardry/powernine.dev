@@ -66,10 +66,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // 4. Fetch all price data from YOUR server's unified API
         try {
-            const apiResponse = await fetch(`/api/prices/${setCode}/${collectorNumber}`);
+            const apiResponse = await fetch(`/api/card/details/${setCode}/${collectorNumber}`);
             if (!apiResponse.ok) throw new Error('price data not found on server.');
             
-            const priceData = await apiResponse.json();
+            const data = await apiResponse.json();
+            const priceData = data.prices;
+
+            console.log('Fetched price data:', priceData);
 
             // Find elements AFTER they have been created by innerHTML
             const pricesTableBody = document.getElementById('pricesTable').querySelector('tbody');

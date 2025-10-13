@@ -22,6 +22,26 @@ const calculateFees = (salePrice, platform) => {
     return (salePrice * rate) + FLAT_FEE;
 };
 
+const mapInternalConditionToManabox = (internalCondition) => {
+    // Map internal DB abbreviations (NM, LP, etc.) to Manabox descriptive terms
+    // based on the reverse of the provided import logic.
+    switch (internalCondition.toUpperCase()) {
+        case 'NM':
+        case 'M': // Assuming 'M' might also map to Mint
+            return 'mint'; 
+        case 'LP':
+            return 'near_mint'; // Mapped from 'near mint'
+        case 'MP':
+            return 'excellent'; // Mapped from 'excellent' or 'good'
+        case 'HP':
+            return 'lightly played'; // Mapped from 'light played' or 'played'
+        case 'DMG':
+            return 'poor'; // Mapped from 'poor'
+        default:
+            return 'near mint'; // Default to a safe, common state
+    }
+};
+
 
 // --- Multer Configuration for PDF Uploads ---
 const storage = multer.diskStorage({
@@ -64,50 +84,69 @@ export default function(db) {
 
 
 
-    router.post('/scrape-lows', express.json(), async (req, res) => {
-        // `condition` is now optional
-        const { tcgplayerId, cardName, setCode, collectorNumber, foilType, condition } = req.body;
+router.post('/scrape-lows', express.json(), async (req, res) => {
+    // `condition` is optional, and `store` is a new optional parameter
+    const { tcgplayerId, cardName, setCode, collectorNumber, foilType, condition, store } = req.body;
 
-        // `condition` is removed from the required check
-        if (!tcgplayerId || !cardName || !setCode || !collectorNumber || !foilType) {
-            return res.status(400).json({ error: 'Missing required card identifiers for scraping.' });
-        }
+    // `condition` and `store` are not required
+    if (!tcgplayerId || !cardName || !setCode || !collectorNumber || !foilType) {
+        return res.status(400).json({ error: 'Missing required card identifiers for scraping.' });
+    }
 
-        let browser;
-        try {
-            const logMessage = condition ? `${cardName} (${condition} ${foilType})` : `${cardName} (Cheapest ${foilType})`;
-            console.log(`🚀 Starting scrape job for: ${logMessage}`);
-            
-            browser = await chromium.launch({ headless: true });
-            const context = await browser.newContext({
-                userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            });
-            const page = await context.newPage();
-            
-            const tcgData = await scrapeTcgplayerData(page, tcgplayerId, foilType, condition ? condition : "DMG");
+    let browser;
+    try {
+        const logMessage = condition ? `${cardName} (${condition} ${foilType})` : `${cardName} (Cheapest ${foilType})`;
+        
+        browser = await chromium.launch({ headless: true });
+        const context = await browser.newContext({
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        });
+        const page = await context.newPage();
+        
+        let tcgLow = null;
+        let manaPoolLow = null;
+        
+        // --- NEW: Conditional scraping logic based on the 'store' parameter ---
+
+        // If the store is specified as 'manapool', only scrape ManaPool.
+        if (store === 'manapool') {
+            console.log(`🚀 Starting ManaPool-only scrape job for: ${logMessage}`);
+
             const cardSlug = cardName.toLowerCase().replace(/\s/g, '-').replace(/[^a-z0-9-]/g, '');
             const manaPoolUrl = `https://manapool.com/card/${setCode.toLowerCase()}/${collectorNumber}/${cardSlug}`;
             const mpData = await scrapeManaPoolListings(page, manaPoolUrl, foilType, condition ? condition : "DMG");
-
-            let tcgLow;
-            let manaPoolLow;
-
-            tcgLow = tcgData.cheapestPrice;
             manaPoolLow = mpData.cheapestPrice;
-            console.log(`✅ Scrape successful: TCG=${tcgLow}, MP=${manaPoolLow}`);
             
-            res.json({
-                tcgLow: tcgLow || null,
-                manaPoolLow: manaPoolLow || null
-            });
+            console.log(`✅ Scrape successful: MP=${manaPoolLow}`);
+        } 
+        // Otherwise, perform the default behavior of scraping both.
+        else {
+            console.log(`🚀 Starting full scrape job for: ${logMessage}`);
 
-        } catch (error) {
-            console.error(`❌ Scrape failed for ${cardName}:`, error);
-            res.status(500).json({ error: 'Failed to scrape pricing data.' });
-        } finally {
-            if (browser) await browser.close();
+            const tcgData = await scrapeTcgplayerData(page, tcgplayerId, foilType, condition ? condition : "DMG");
+            tcgLow = tcgData.cheapestPrice;
+            
+            const cardSlug = cardName.toLowerCase().replace(/\s/g, '-').replace(/[^a-z0-9-]/g, '');
+            const manaPoolUrl = `https://manapool.com/card/${setCode.toLowerCase()}/${collectorNumber}/${cardSlug}`;
+            const mpData = await scrapeManaPoolListings(page, manaPoolUrl, foilType, condition ? condition : "DMG");
+            manaPoolLow = mpData.cheapestPrice;
+
+            console.log(`✅ Scrape successful: TCG=${tcgLow}, MP=${manaPoolLow}`);
         }
-    });
+        
+        res.json({
+            tcgLow: tcgLow,       // Will be null if only ManaPool was scraped
+            manaPoolLow: manaPoolLow
+        });
+
+    } catch (error) {
+        console.error(`❌ Scrape failed for ${cardName}:`, error);
+        res.status(500).json({ error: 'Failed to scrape pricing data.' });
+    } finally {
+        if (browser) await browser.close();
+    }
+});
+
 
     // UPDATED: GET all inventory items (selects all new columns)
     router.get('/inventory', (req, res) => {
@@ -144,13 +183,13 @@ export default function(db) {
     // POST a new item to inventory
     router.post('/inventory', express.json(), (req, res) => {
         // Add 'condition' to the destructured properties
-        const { name, setCode, collectorNumber, foilType, pricePaid, quantity, tcgplayerId, condition } = req.body;
+        const { name, setCode, collectorNumber, foilType, pricePaid, quantity, tcgplayerId, condition, scryfallId } = req.body;
         const id = randomUUID();
         // Add the new column to the INSERT statement
-        const sql = `INSERT INTO inventory (id, name, setCode, collectorNumber, foilType, pricePaid, quantity, tcgplayerId, condition)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        const sql = `INSERT INTO inventory (id, name, setCode, collectorNumber, foilType, pricePaid, quantity, tcgplayerId, condition, scryfallId)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
         // Add the condition to the parameters array
-        const params = [id, name, setCode, collectorNumber, foilType, pricePaid, quantity, tcgplayerId, condition || 'NM'];
+        const params = [id, name, setCode, collectorNumber, foilType, pricePaid, quantity, tcgplayerId, condition || 'NM', scryfallId];
         db.run(sql, params, function(err) {
             if (err) {
               console.error("Failed to add inventory item:", err);
@@ -465,136 +504,75 @@ export default function(db) {
         });
     });
 
-    // --- Endpoint for getting price data from the unified database ---
-    router.get('/prices/:setCode/:collectorNumber', (req, res) => {
+    router.get('/card/details/:setCode/:collectorNumber', (req, res) => {
         const { setCode, collectorNumber } = req.params;
 
-        // Step 1: Find the card's UUID from the 'cards' table using its set and collector number.
-        const uuidSql = `SELECT uuid FROM cards WHERE setCode = ? AND number = ?`;
-        db.get(uuidSql, [setCode.toUpperCase(), collectorNumber], (err, cardRow) => {
-            if (err) return res.status(500).json({ error: err.message });
-            if (!cardRow) return res.status(404).json({ error: 'Card printing not found in the database.' });
-            
-            const { uuid } = cardRow;
-
-            // Step 2: Use the UUID to find the price history JSON from the 'price_history' table.
-            const priceSql = `SELECT price_json FROM price_history WHERE uuid = ?`;
-            db.get(priceSql, [uuid], (priceErr, priceRow) => {
-                if (priceErr) return res.status(500).json({ error: priceErr.message });
-                if (!priceRow) return res.status(404).json({ error: 'No price history found for this card.' });
-
-                // Step 3: Parse the JSON string and send it back to the client.
-                try {
-                    const priceData = JSON.parse(priceRow.price_json);
-                    res.json(priceData);
-                } catch (parseError) {
-                    res.status(500).json({ error: 'Failed to parse price data from the database.' });
-                }
-            });
-        });
-    });
-
-    // --- Endpoint for getting card identifiers from the unified database ---
-    router.get('/cards/cardIdentifiers/:setCode/:collectorNumber', (req, res) => {
-        const { setCode, collectorNumber } = req.params;
-
-        // Step 1: Find the card's UUID from the 'cards' table using its set and collector number.
-        const uuidSql = `SELECT uuid FROM cards WHERE setCode = ? AND number = ?`;
-        db.get(uuidSql, [setCode.toUpperCase(), collectorNumber], (err, cardRow) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
-            if (!cardRow) {
-                return res.status(404).json({ error: 'Card printing not found in the database.' });
-            }
-            
-            const { uuid } = cardRow;
-
-            // Step 2: Use the UUID to find the card's identifiers from the 'cardIdentifiers' table.
-            const identifiersSql = `SELECT * FROM cardIdentifiers WHERE uuid = ?`;
-            db.get(identifiersSql, [uuid], (identifiersErr, identifiersRow) => {
-                if (identifiersErr) {
-                    return res.status(500).json({ error: identifiersErr.message });
-                }
-                if (!identifiersRow) {
-                    return res.status(404).json({ error: 'No identifiers found for this card.' });
-                }
-
-                // Step 3: Send the identifiers JSON object back to the client.
-                res.json(identifiersRow);
-            });
-        });
-    });
-
-    // --- Endpoint for getting a card's data from the 'cards' table ---
-    router.get('/cards/card/:setCode/:collectorNumber', (req, res) => {
-        const { setCode, collectorNumber } = req.params;
-
-        // Find the card in the 'cards' table using its set and collector number.
+        // Step 1: Get the primary card data. This also gives us the UUID for other lookups.
         const cardSql = `SELECT * FROM cards WHERE setCode = ? AND number = ?`;
         db.get(cardSql, [setCode.toUpperCase(), collectorNumber], (err, cardRow) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
-            if (!cardRow) {
-                return res.status(404).json({ error: 'Card not found in the database.' });
-            }
+            if (err) return res.status(500).json({ error: "Database error on initial card lookup.", details: err.message });
+            if (!cardRow) return res.status(404).json({ error: 'Card not found in the database.' });
 
-            // Send the card data back to the client.
-            res.json(cardRow);
-        });
-    });
-
-    // --- Endpoint for getting a set's data from the 'sets' table ---
-    router.get('/sets/:setCode', (req, res) => {
-        const { setCode } = req.params;
-
-        // Find the set in the 'sets' table using its set code.
-        const setSql = `SELECT * FROM sets WHERE code = ?`;
-        db.get(setSql, [setCode.toUpperCase()], (err, setRow) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
-            if (!setRow) {
-                return res.status(404).json({ error: 'Set not found in the database.' });
-            }
-
-            // Send the set data back to the client.
-            res.json(setRow);
-        });
-    });
-
-    // --- Endpoint for getting card purchase URLs from the unified database ---
-    router.get('/cards/purchaseUrls/:setCode/:collectorNumber', (req, res) => {
-        const { setCode, collectorNumber } = req.params;
-
-        // Step 1: Find the card's UUID from the 'cards' table using its set and collector number.
-        const uuidSql = `SELECT uuid FROM cards WHERE setCode = ? AND number = ?`;
-        db.get(uuidSql, [setCode.toUpperCase(), collectorNumber], (err, cardRow) => {
-            if (err) {
-                return res.status(500).json({ error: err.message });
-            }
-            if (!cardRow) {
-                return res.status(404).json({ error: 'Card printing not found in the database.' });
-            }
-            
             const { uuid } = cardRow;
+            let combinedData = {}; // This object will hold all our final data.
 
-            // Step 2: Use the UUID to find the card's purchase URLs from the 'cardPurchaseUrls' table.
+            // We have 4 additional queries to run. We'll run them in parallel.
+            const totalQueries = 4;
+            let queriesCompleted = 0;
+
+            // This function will be called after each parallel query finishes.
+            // When all are done, it sends the final combined response.
+            const checkCompletion = () => {
+                queriesCompleted++;
+                if (queriesCompleted === totalQueries) {
+                    res.json(combinedData);
+                }
+            };
+
+            // --- Start Parallel Queries ---
+
+            // Query 2: Get Price History
+            const priceSql = `SELECT price_json FROM price_history WHERE uuid = ?`;
+            db.get(priceSql, [uuid], (priceErr, priceRow) => {
+                if (priceErr) console.error("Error fetching price data:", priceErr.message);
+                try {
+                    // We add the parsed price data, or null if it doesn't exist.
+                    combinedData.prices = priceRow ? JSON.parse(priceRow.price_json) : null;
+                } catch (parseError) {
+                    console.error("Error parsing price JSON:", parseError.message);
+                    combinedData.prices = { error: 'Failed to parse price data.' };
+                }
+                checkCompletion();
+            });
+
+            // Query 3: Get Card Identifiers
+            const identifiersSql = `SELECT * FROM cardIdentifiers WHERE uuid = ?`;
+            db.get(identifiersSql, [uuid], (identifiersErr, identifiersRow) => {
+                if (identifiersErr) console.error("Error fetching identifiers:", identifiersErr.message);
+                combinedData.identifiers = identifiersRow || null;
+                checkCompletion();
+            });
+
+            // Query 4: Get Purchase URLs
             const purchaseUrlsSql = `SELECT * FROM cardPurchaseUrls WHERE uuid = ?`;
             db.get(purchaseUrlsSql, [uuid], (purchaseUrlsErr, purchaseUrlsRow) => {
-                if (purchaseUrlsErr) {
-                    return res.status(500).json({ error: purchaseUrlsErr.message });
-                }
-                if (!purchaseUrlsRow) {
-                    return res.status(404).json({ error: 'No purchase URLs found for this card.' });
-                }
+                if (purchaseUrlsErr) console.error("Error fetching purchase URLs:", purchaseUrlsErr.message);
+                combinedData.purchaseUrls = purchaseUrlsRow || null;
+                checkCompletion();
+            });
 
-                // Step 3: Send the purchase URLs JSON object back to the client.
-                res.json(purchaseUrlsRow);
+            // Query 5: Get Set Information
+            const setSql = `SELECT * FROM sets WHERE code = ?`;
+            db.get(setSql, [setCode.toUpperCase()], (setErr, setRow) => {
+                if (setErr) console.error("Error fetching set data:", setErr.message);
+                combinedData.set = setRow || null;
+                // The main `cardRow` data is added last to ensure it's present.
+                combinedData.card = cardRow; 
+                checkCompletion();
             });
         });
     });
+
 
     // --- Other utility routes ---
     router.get('/card-names', (req, res) => res.json(getCardNames()));

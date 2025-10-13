@@ -63,13 +63,17 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         inventoryContainer.innerHTML = '';
-        inventory.forEach(item => {
-            const itemElement = document.createElement('div');
-            itemElement.className = 'inventory-item skeleton';
-            itemElement.id = `item-${item.id}`;
-            inventoryContainer.appendChild(itemElement);
-            addToDetailQueue(() => fetchSingleCardDetails(item));
-        });
+
+        // Create a copy of the inventory, sort it by name, and then iterate
+        [...inventory]
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .forEach(item => {
+                const itemElement = document.createElement('div');
+                itemElement.className = 'inventory-item skeleton';
+                itemElement.id = `item-${item.id}`;
+                inventoryContainer.appendChild(itemElement);
+                addToDetailQueue(() => fetchSingleCardDetails(item));
+            });
     };
 
     const updateQuantity = async (itemId, action) => {
@@ -108,13 +112,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const fetchSingleCardDetails = async (item) => {
         try {
-            const [cardIdentifiers, priceResponse] = await Promise.all([
-                fetch(`/api/cards/cardIdentifiers/${item.setCode}/${item.collectorNumber}`),
-                fetch(`/api/prices/${item.setCode}/${item.collectorNumber}`)
+            const [rawCardData] = await Promise.all([
+                fetch(`/api/card/details/${item.setCode}/${item.collectorNumber}`)
             ]);
 
-            const cardIdentifiersData = cardIdentifiers.ok ? await cardIdentifiers.json() : null;
-            const priceData = priceResponse.ok ? await priceResponse.json() : null;
+            const cardData = rawCardData.ok ? await rawCardData.json() : null;
+
+            const cardIdentifiersData = cardData?.identifiers || null;
+            const cardInfo = cardData?.card || {};
+            const setInfo = cardData?.set || {};
+            const priceData = cardData?.prices || null;
+            const purchaseUrls = cardData?.purchaseUrls || {};
+
 
             item.imageUrl = `https://tcgplayer-cdn.tcgplayer.com/product/${cardIdentifiersData.tcgplayerProductId}_in_1000x1000.jpg` || 'https://placehold.co/245x342/1a1a1a/e0e0e0?text=N/A';
             item.tcgplayerId = cardIdentifiersData.tcgplayerProductId;
@@ -275,6 +284,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 collectorNumber: printing.collector_number,
                                 foilType: button.dataset.finish === 'nonfoil' ? 'normal' : button.dataset.finish,
                                 tcgplayerId: printing.tcgplayer_id,
+                                scryfallId: printing.id,
                                 pricePaid: price,
                                 condition: condition,
                                 quantity: quantity

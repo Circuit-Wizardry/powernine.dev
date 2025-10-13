@@ -2,7 +2,9 @@
 
 /**
  * UPDATED: Now accepts a foilType and a targetCondition.
- * It finds the cheapest listing for the target condition OR BETTER.
+ * It finds the cheapest listing (assumed to be the first match) for the target condition OR BETTER.
+ * If no initial match is found, it will click "Show More" up to 5 times to find one.
+ * It will also avoid any listings from the seller "Fells Forge TCG".
  * @param {object} page - The Playwright page object.
  * @param {string} manaPoolUrl - The direct URL to the card's page.
  * @param {string} foilType - 'normal', 'foil', or 'etched'.
@@ -13,52 +15,90 @@ async function scrapeManaPoolListings(page, manaPoolUrl, foilType, targetConditi
     await page.goto(manaPoolUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
     await page.waitForSelector('li .font-bold.text-green-700', { timeout: 20000 });
 
-    const listingElements = await page.locator('.flow-root li').all();
-    if (listingElements.length === 0) throw new Error("No ManaPool listings found.");
-
-    // --- NEW: Condition hierarchy from best to worst ---
     const conditionHierarchy = ['NM', 'LP', 'MP', 'HP', 'DMG'];
     const targetConditionIndex = conditionHierarchy.indexOf(targetCondition);
     if (targetConditionIndex === -1) {
         throw new Error(`Invalid target condition provided: ${targetCondition}`);
     }
 
-    let cheapestPrice = Infinity;
+    /**
+     * Scans the currently visible listings on the page.
+     * Since the lowest price is always first, it returns the first valid match it finds.
+     * @returns {Promise<number|null>} The price if found, otherwise null.
+     */
+    const findFirstValidListing = async () => {
+        const listingElements = await page.locator('.flow-root li').all();
+        if (listingElements.length === 0) throw new Error("No ManaPool listings found on page load.");
 
-    for (const item of listingElements) {
-        try {
-            const badges = await item.locator('span[class*="rounded-"]').allTextContents();
-            
-            const listingIsFoil = badges.some(b => b.trim() === 'Foil');
-            const listingIsEtched = badges.some(b => b.trim() === 'Etched');
-
-            if (foilType === 'foil' && !listingIsFoil) continue;
-            if (foilType === 'etched' && !listingIsEtched) continue;
-            if (foilType === 'normal' && (listingIsFoil || listingIsEtched)) continue;
-
-            const priceText = await item.locator('.font-bold.text-green-700').textContent();
-            const price = parseFloat(priceText.replace('$', ''));
-            
-            let listingCondition = 'NM'; // Default condition on ManaPool
-            badges.forEach(badgeText => {
-                const text = badgeText.trim();
-                if (conditionHierarchy.includes(text)) listingCondition = text;
-            });
-            
-            // --- NEW: Check if the listing's condition meets the criteria ---
-            const listingConditionIndex = conditionHierarchy.indexOf(listingCondition);
-
-            // If the listing's condition is at or better than the target (lower or equal index)
-            if (listingConditionIndex <= targetConditionIndex) {
-                if (price < cheapestPrice) {
-                    cheapestPrice = price;
+        for (const item of listingElements) {
+            try {
+                // --- FIXED: Updated the selector for the seller name ---
+                // The site changed from a <p> tag to nested <div>s for the seller name.
+                const sellerNameElement = item.locator('div.text-sm.truncate.font-medium');
+                const sellerName = await sellerNameElement.textContent({ timeout: 1000 });
+                if (sellerName && sellerName.trim() === 'Fells Forge TCG') {
+                    continue; // Skip this seller
                 }
+
+                const badges = await item.locator('span[class*="rounded-"]').allTextContents();
+                
+                const listingIsFoil = badges.some(b => b.trim() === 'Foil');
+                const listingIsEtched = badges.some(b => b.trim() === 'Etched');
+
+                if (foilType === 'foil' && !listingIsFoil) continue;
+                if (foilType === 'etched' && !listingIsEtched) continue;
+                if (foilType === 'normal' && (listingIsFoil || listingIsEtched)) continue;
+
+                let listingCondition = 'NM'; // Default condition on ManaPool
+                badges.forEach(badgeText => {
+                    const text = badgeText.trim();
+                    if (conditionHierarchy.includes(text)) listingCondition = text;
+                });
+                
+                const listingConditionIndex = conditionHierarchy.indexOf(listingCondition);
+
+                // If the listing's condition meets the criteria
+                if (listingConditionIndex <= targetConditionIndex) {
+                    const priceText = await item.locator('.font-bold.text-green-700').textContent();
+                    // Found the first valid listing, return its price
+                    return parseFloat(priceText.replace('$', ''));
+                }
+            } catch { continue; }
+        }
+        // If the loop completes without finding a match
+        return null;
+    };
+
+    // 1. First attempt on the initially loaded listings.
+    let cheapestPrice = await findFirstValidListing();
+
+    // 2. If no price was found, then try clicking "Show More".
+    if (cheapestPrice === null) {
+        console.log('     -> No match found on initial load. Attempting to "Show More".');
+        for (let i = 0; i < 5; i++) {
+            try {
+                const showMoreButton = page.getByRole('button', { name: /show more/i });
+                await showMoreButton.click({ timeout: 2000 });
+                console.log('     -> Clicked "Show More" button.');
+                await page.waitForLoadState('networkidle', { timeout: 5000 });
+
+                // Re-run the scan on the newly loaded content
+                cheapestPrice = await findFirstValidListing();
+
+                // If a price is found after clicking, we're done.
+                if (cheapestPrice !== null) {
+                    console.log('     -> Found a match after expanding listings.');
+                    break;
+                }
+            } catch (error) {
+                console.log('     -> No more "Show More" buttons found. Proceeding.');
+                break; // Exit loop if button is no longer available
             }
-        } catch { continue; }
+        }
     }
     
     return {
-        cheapestPrice: cheapestPrice === Infinity ? null : cheapestPrice
+        cheapestPrice: cheapestPrice // This will be the price or null
     };
 }
 

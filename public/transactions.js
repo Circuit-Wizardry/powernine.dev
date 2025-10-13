@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const closeModalBtn = modal.querySelector('.close-button');
 
     // --- Frontend rate-limiting queue for Scryfall detail fetches ---
-    const RATE_LIMIT_MS = 125;
+    const RATE_LIMIT_MS = 25;
     const detailRequestQueue = [];
     let isDetailRequestProcessing = false;
 

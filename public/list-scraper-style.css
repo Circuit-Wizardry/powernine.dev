@@ -1,0 +1,134 @@
+:root {
+    --primary-color: #3498db;
+    --secondary-color: #2c3e50;
+    --success-color: #2ecc71;
+    --warning-color: #f39c12;
+    --danger-color: #e74c3c;
+    --light-gray: #ecf0f1;
+    --dark-gray: #34495e;
+    --border-radius: 5px;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--light-gray);
+    color: var(--dark-gray);
+    margin: 0;
+    padding: 20px;
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    background-color: white;
+    padding: 25px;
+    border-radius: var(--border-radius);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+h1 {
+    color: var(--dark-gray);
+    text-align: center;
+    border-bottom: 2px solid var(--light-gray);
+    padding-bottom: 15px;
+    margin-top: 0;
+}
+
+.controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding: 15px;
+    background-color: #f9f9f9;
+    border-radius: var(--border-radius);
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+#scrape-status {
+    font-weight: bold;
+    flex-grow: 1;
+    text-align: right;
+}
+
+button {
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s ease;
+    white-space: nowrap;
+}
+
+#scrape-all-btn { background-color: var(--primary-color); }
+#scrape-all-btn:hover:not(:disabled) { background-color: #2980b9; }
+
+#download-csv-btn { background-color: var(--success-color); }
+#download-csv-btn:hover:not(:disabled) { background-color: #27ae60; }
+
+button:disabled {
+    background-color: #bdc3c7;
+    cursor: not-allowed;
+}
+
+#inventory-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+#inventory-table th, #inventory-table td {
+    padding: 12px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--light-gray);
+}
+
+#inventory-table th { background-color: #f2f2f2; }
+
+.price-input {
+    width: 70px;
+    padding: 5px;
+    border-radius: var(--border-radius);
+    border: 1px solid #ccc;
+    background-color: #f9f9f9;
+}
+
+.price-input.manual-entry { background-color: white; }
+
+.status {
+    font-weight: bold;
+    padding: 5px 8px;
+    border-radius: var(--border-radius);
+    font-size: 0.9em;
+    text-align: center;
+    display: inline-block;
+    min-width: 60px;
+    text-decoration: none; /* For <a> tags */
+}
+
+.status-pending { background-color: #e0e0e0; color: #555; }
+.status-scraping { background-color: var(--primary-color); color: white; }
+.status-priced { background-color: var(--success-color); color: white; }
+.status-manual { background-color: var(--warning-color); color: white !important; cursor: pointer; }
+.status-manual:hover { opacity: 0.9; }
+.status-error { background-color: var(--danger-color); color: white; }
+
+.loader {
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid var(--primary-color);
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    animation: spin 1s linear infinite;
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 5px;
+}
+
+@keyframes spin { 
+    0% { transform: rotate(0deg); } 
+    100% { transform: rotate(360deg); } 
+}

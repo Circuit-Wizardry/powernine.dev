@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const warningBanner = document.getElementById('save-warning'); // New element
     const previewer = document.getElementById('card-previewer');
     const previewImage = document.getElementById('card-preview-image');
+    const progressLabel = document.getElementById('progressLabel');
 
 
     // --- CONSTANTS FOR FEE CALCULATION ---
@@ -289,19 +290,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const fetchSingleCardDetails = async (card) => {
         try {
-            const [rawCardInfo, rawSetInfo, cardIdentifiers, priceResponse, rawPurchaseUrls] = await Promise.all([
-                fetch(`/api/cards/card/${card.setCode}/${card.collectorNumber}`),
-                fetch(`/api/sets/${card.setCode}`),
-                fetch(`/api/cards/cardIdentifiers/${card.setCode}/${card.collectorNumber}`),
-                fetch(`/api/prices/${card.setCode}/${card.collectorNumber}`),
-                fetch(`/api/cards/purchaseUrls/${card.setCode}/${card.collectorNumber}`),
+            const [rawCardData] = await Promise.all([
+                fetch(`/api/card/details/${card.setCode}/${card.collectorNumber}`),
             ]);
 
-            const cardIdentifiersData = cardIdentifiers.ok ? await cardIdentifiers.json() : null;
-            const priceData = priceResponse.ok ? await priceResponse.json() : null;
-            const cardInfo = rawCardInfo.ok ? await rawCardInfo.json() : null;
-            const setInfo = rawSetInfo.ok ? await rawSetInfo.json() : null;
-            const purchaseUrls = rawPurchaseUrls ? await rawPurchaseUrls.json() : null;
+            const cardData = rawCardData.ok ? await rawCardData.json() : null;
+
+            const cardIdentifiersData = cardData?.identifiers || null;
+            const cardInfo = cardData?.card || {};
+            const setInfo = cardData?.set || {};
+            const priceData = cardData?.prices || null;
+            const purchaseUrls = cardData?.purchaseUrls || {};
 
             card.imageUrl = `https://tcgplayer-cdn.tcgplayer.com/product/${cardIdentifiersData.tcgplayerProductId}_in_1000x1000.jpg` || 'https://placehold.co/245x342/1a1a1a/e0e0e0?text=N/A';
             card.tcgplayerId = cardIdentifiersData.tcgplayerProductId;
@@ -345,7 +344,7 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     const fetchAllCardDetails = async () => {
         totalCollectionValue = 0;
-        const delayBetweenRequests = 10;
+        // const delayBetweenRequests = 1;
 
         // Loop through each card individually
         for (const card of allCards) {
@@ -353,8 +352,9 @@ document.addEventListener('DOMContentLoaded', () => {
             await fetchSingleCardDetails(card);
 
             document.getElementById('myBar').style.width = `${((allCards.indexOf(card) + 1) / allCards.length) * 100}%`;
+            progressLabel.textContent = `Loading card ${allCards.indexOf(card) + 1} of ${allCards.length}`;
             // After the request is done, pause for 125ms before the next loop iteration
-            await new Promise(resolve => setTimeout(resolve, delayBetweenRequests));
+            // await new Promise(resolve => setTimeout(resolve, delayBetweenRequests));
         }
     };
     

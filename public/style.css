@@ -279,3 +279,17 @@ body {
     background-color: #555;
     cursor: not-allowed;
 }
+
+.btn {
+    background-color: #103936;
+    color: #ffffff;
+    border: none;
+    padding: 12px 20px;
+    border-radius: 8px;
+    margin-bottom: 3%;
+    cursor: pointer;
+    font-weight: bold;
+    transition: background-color 0.2s;
+    margin-top: 1rem;
+    width: 85%;
+}

@@ -362,12 +362,26 @@ h1 { margin: 0; }
   width: 100%;
   background-color: #2c2c2c;
   margin: 10px;
+  border-radius: 8px;
+  text-align: center;
 }
 
 #myBar {
-  width: 1%;
+  width: 0%;
   height: 30px;
+  transition: width 0.4s linear; /* note this line */
   background-color: green;
+  border-radius: 8px;
+}
+
+.progress-label {
+    width: 100%;
+    text-align: center;
+    color: white;
+    padding-bottom: 5px;
+    font-weight: bold;
+    font-size: 0.9em;
+    pointer-events: none; /* Ensures it doesn't interfere with mouse events */
 }
 
 #card-previewer {

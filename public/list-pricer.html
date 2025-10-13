@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventory Pricer & Exporter</title>
+    <link rel="stylesheet" href="/list-scraper-style.css">
+</head>
+<body>
+
+    <div class="container">
+        <h1>Inventory Exporter</h1>
+        <div id="loading-message">Loading inventory...</div>
+        
+        <div class="controls" style="display: none;">
+            <div>
+                <button id="scrape-all-btn">Scrape All Prices</button>
+                <button id="download-csv-btn" disabled>Download CSV (in ManaBox format, for ManaPool)</button>
+            </div>
+            <div id="scrape-status">Status: Idle</div>
+        </div>
+
+        <table id="inventory-table" style="display: none;">
+            <thead>
+                <tr>
+                    <th>Card Name</th>
+                    <th>Set</th>
+                    <th>#</th>
+                    <th>Foil</th>
+                    <th>Cond.</th>
+                    <th>Qty</th>
+                    <th>List Price</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="inventory-body"></tbody>
+        </table>
+    </div>
+
+    <script src="/list-scraper.js"></script>
+</body>
+</html>
