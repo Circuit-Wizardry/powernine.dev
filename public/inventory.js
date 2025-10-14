@@ -18,6 +18,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const detailRequestQueue = [];
     let isDetailRequestProcessing = false;
 
+    const formatPrice = (value) => {
+      // Check if the value is of type 'number' and is not NaN
+      if (typeof value === 'number' && !isNaN(value)) {
+        return `$${value.toFixed(2)}`;
+      }
+      // Otherwise, just return the original value (e.g., "N/A")
+      return "N/A";
+    };
+
     const processDetailQueue = () => {
         if (detailRequestQueue.length === 0) {
             isDetailRequestProcessing = false;
@@ -44,6 +53,24 @@ document.addEventListener('DOMContentLoaded', () => {
         const latestDate = Object.keys(priceHistory).sort((a, b) => new Date(b) - new Date(a))[0];
         return priceHistory[latestDate] || 0;
     };
+    
+    const getBuylists = (pricesData, vendor, foilType) => {
+        // Use optional chaining (?.) to safely navigate the nested object structure.
+        // This prevents errors if any intermediate key (like 'paper' or 'buylist') doesn't exist.
+        const priceHistory = pricesData?.paper?.[vendor]?.buylist?.[foilType];
+
+        // Check if priceHistory is a valid, non-empty object.
+        if (!priceHistory || typeof priceHistory !== 'object' || Object.keys(priceHistory).length === 0) {
+            return 0; // Return 0 if no data is available
+        }
+
+        // Find the most recent date by sorting the date strings in descending order.
+        const latestDate = Object.keys(priceHistory).sort((a, b) => new Date(b) - new Date(a))[0];
+
+        // Return the price for the latest date, or 0 if it's somehow missing.
+        return priceHistory[latestDate] || 0;
+    };
+
     const formatTimeAgo = (dateString) => {
         if (!dateString) return null;
         const date = new Date(dateString);
@@ -119,25 +146,27 @@ document.addEventListener('DOMContentLoaded', () => {
             const cardData = rawCardData.ok ? await rawCardData.json() : null;
 
             const cardIdentifiersData = cardData?.identifiers || null;
+
+            item.imageUrl = `https://tcgplayer-cdn.tcgplayer.com/product/${cardIdentifiersData.tcgplayerProductId}_in_1000x1000.jpg` || 'https://placehold.co/245x342/1a1a1a/e0e0e0?text=N/A';
+            item.tcgplayerId = cardIdentifiersData.tcgplayerProductId;
+
+            const itemElement = document.getElementById(`item-${item.id}`);
+
             const cardInfo = cardData?.card || {};
             const setInfo = cardData?.set || {};
             const priceData = cardData?.prices || null;
             const purchaseUrls = cardData?.purchaseUrls || {};
 
+            // console.log(item)
 
-            item.imageUrl = `https://tcgplayer-cdn.tcgplayer.com/product/${cardIdentifiersData.tcgplayerProductId}_in_1000x1000.jpg` || 'https://placehold.co/245x342/1a1a1a/e0e0e0?text=N/A';
-            item.tcgplayerId = cardIdentifiersData.tcgplayerProductId;
             item.tcgMarketPrice = getLatestPrice(priceData?.paper?.tcgplayer?.retail?.[item.foilType]);
+            const tcgLow = item.tcgLow;
+            const tcgLowPlusShipping = item.tcgLowPlusShipping;
 
-            const tcgBreakeven = calculateBreakevenPrice(item.pricePaid, TCGPLAYER_FEE_RATE);
-            const mpBreakeven = calculateBreakevenPrice(item.pricePaid, MANAPOOL_FEE_RATE);
+            const ckBuylist = (getBuylists(priceData, 'cardkingdom', item.foilType));
             
-            const tcgRecPrice = calculateRecommendedPrice(item.tcgLow || item.tcgMarketPrice, tcgBreakeven);
-            const mpRecPrice = calculateRecommendedPrice(item.manaPoolLow, mpBreakeven);
-
             const timeAgo = formatTimeAgo(item.pricesLastUpdatedAt);
-            const itemElement = document.getElementById(`item-${item.id}`);
-            
+                        
             if (itemElement) {
                 itemElement.classList.remove('skeleton');
                 itemElement.innerHTML = `
@@ -151,33 +180,43 @@ document.addEventListener('DOMContentLoaded', () => {
                                     <span id="quantity-${item.id}">x${item.quantity}</span>
                                     <button class="quantity-btn" data-id="${item.id}" data-action="increase">+</button>
                                 </div>
-
                                 <span class="set-code">(${item.setCode})</span>
                                 <span class="condition-badge condition-${item.condition.toLowerCase()}">${item.condition}</span>
                                 <span class="foil-badge foil-${item.foilType}">${item.foilType === 'normal' ? '' : item.foilType}</span>
                             </h3>
                             <div class="price-line"><span>Price Paid:</span><span class="price-paid">$${item.pricePaid.toFixed(2)}</span></div>
-                            <div class="price-line"><span>TCG Market:</span><span class="price-market" id="market-${item.id}">$${item.tcgMarketPrice.toFixed(2)}</span></div>
-                            <div class="price-line"><span>TCG Low:</span><span class="price-scraped" id="tcg-low-${item.id}">${item.tcgLow ? '$' + item.tcgLow.toFixed(2) : '-'}</span></div>
-                            <div class="price-line"><span>MP Low:</span><span class="price-scraped" id="mp-low-${item.id}">${item.manaPoolLow ? '$' + item.manaPoolLow.toFixed(2) : '-'}</span></div>
-                            <div class="last-updated" id="updated-${item.id}">${timeAgo ? `Updated: ${timeAgo}` : ''}</div>
                         </div>
-                        <div class="info-block" id="analysis-${item.id}">
-                            <h3><abbr title="Includes est. shipping costs and 1.49 shipping charge on customer">Break-Even</abbr></h3>
-                            <div class="price-line"><span>TCGPlayer:</span><span style="${tcgBreakeven < (item.tcgLow ?? item.tcgMarketPrice) ? 'color: #28a745; font-weight: bold;' : ''}">$${tcgBreakeven.toFixed(2)}</span></div>
-                            <div class="price-line"><span>ManaPool:</span><span style="${item.manaPoolLow && (mpBreakeven < item.manaPoolLow) ? 'color: #28a745; font-weight: bold;' : ''}">$${mpBreakeven.toFixed(2)}</span></div>
-                        </div>
-                        <div class="info-block" id="rec-price-${item.id}">
-                            <h3>Recommended Price</h3>
-                            <div class="price-line"><span>TCGPlayer:</span><span class="price-rec" id="rec-tcg-${item.id}">$${tcgRecPrice.toFixed(2)}</span></div>
-                            <div class="price-line"><span>ManaPool:</span><span class="price-rec" id="rec-mp-${item.id}">$${mpRecPrice.toFixed(2)}</span></div>
-                        </div>
+
                         <div class="info-block actions">
                             <button class="scrape-btn" data-id="${item.id}" ${!item.tcgplayerId ? 'disabled' : ''}>Scrape Lows</button>
                             <button class="delete-btn" data-id="${item.id}">Delete</button>
                         </div>
-                    </div>
-                `;
+
+                        <div class="price-table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>TCG Market</th>
+                                        <th>TCG Low</th>
+                                        <th>TCG Low + Ship</th>
+                                        <th>CK Buylist</th>
+                                        <th>SCG Buylist</th>
+                                        <th>CSI Buylist</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                      <td data-price-type="tcgMarketPrice">${formatPrice(item.tcgMarketPrice)}</td>
+                                      <td data-price-type="tcgLow">${formatPrice(tcgLow)}</td>
+                                      <td data-price-type="tcgLowPlusShipping">${formatPrice(tcgLowPlusShipping)}</td>
+                                      <td class="${formatPrice(ckBuylist) > formatPrice(tcgLowPlusShipping) ? "profitable" : ""}" data-price-type="ckBuylist">${formatPrice(ckBuylist)}</td>
+                                      <td data-price-type="scgBuylist">${formatPrice(0)}</td>
+                                      <td data-price-type="csiBuylist">${formatPrice(0)}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>                
+                        `;
             }
         } catch (error) {
             console.error(`Failed to load details for ${item.name}:`, error);
@@ -186,7 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    const addCardToInventory = async (cardData) => {
+const addCardToInventory = async (cardData) => {
         try {
             const response = await fetch('/api/inventory', {
                 method: 'POST',
@@ -305,11 +344,37 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
     
+    const updatePriceRow = (itemId, priceData) => {
+        // Find the main container for the specific inventory item.
+        const itemContainer = document.getElementById(`item-${itemId}`);
+        if (!itemContainer) {
+            console.error(`Could not find container for item ID: ${itemId}`);
+            return;
+        }
+
+        // Loop through each key in the new price data (e.g., "tcgLow", "ckBuylist").
+        for (const key in priceData) {
+            // Find the specific table cell within this item's container.
+            const cell = itemContainer.querySelector(`[data-price-type="${key}"]`);
+            if (cell) {
+                // Update the cell's text with the new, formatted price.
+                cell.textContent = formatPrice(priceData[key]);
+            }
+        }
+    };
+
+    /**
+     * Scrapes live pricing data for a given inventory item and updates the UI.
+     * @param {string} itemId - The ID of the item to scrape.
+     * @param {HTMLButtonElement} button - The button element that was clicked.
+     */
     const scrapeLiveLows = async (itemId, button) => {
         const item = inventory.find(i => i.id === itemId);
         if (!item) return;
+
         button.disabled = true;
         button.textContent = 'Scraping...';
+
         try {
             const response = await fetch('/api/scrape-lows', {
                 method: 'POST',
@@ -323,34 +388,48 @@ document.addEventListener('DOMContentLoaded', () => {
                     condition: item.condition
                 })
             });
-            if (!response.ok) throw new Error('Scrape failed.');
+
+            if (!response.ok) {
+                const errorInfo = await response.json();
+                throw new Error(errorInfo.error || 'Scrape failed from server.');
+            }
+
             const scrapedData = await response.json();
+
             await fetch(`/api/inventory/${item.id}/prices`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(scrapedData)
             });
-            item.tcgLow = scrapedData.tcgLow;
-            item.manaPoolLow = scrapedData.manaPoolLow;
-            document.getElementById(`tcg-low-${item.id}`).textContent = item.tcgLow ? `$${item.tcgLow.toFixed(2)}` : 'N/A';
-            document.getElementById(`mp-low-${item.id}`).textContent = item.manaPoolLow ? `$${item.manaPoolLow.toFixed(2)}` : 'N/A';
-            document.getElementById(`updated-${item.id}`).textContent = 'Updated: Just now';
-            const tcgBreakeven = calculateBreakevenPrice(item.pricePaid, TCGPLAYER_FEE_RATE);
-            const mpBreakeven = calculateBreakevenPrice(item.pricePaid, MANAPOOL_FEE_RATE);
-            const newTcgRec = calculateRecommendedPrice(item.tcgLow, tcgBreakeven);
-            const newMpRec = calculateRecommendedPrice(item.manaPoolLow, mpBreakeven);
-            document.getElementById(`rec-tcg-${item.id}`).textContent = `$${newTcgRec.toFixed(2)}`;
-            document.getElementById(`rec-mp-${item.id}`).textContent = `$${newMpRec.toFixed(2)}`;
-            button.textContent = '✓ Updated';
-        } catch (error) {
-            console.error(error);
-            button.textContent = 'Error!';
+
+
+            // **THE MAGIC HAPPENS HERE**
+            // Call the new, clean function to update the entire row.
+            updatePriceRow(item.id, scrapedData);
+
+            // (Optional) You can still update the local inventory object if needed for other calculations
+            Object.assign(item, scrapedData);
+
+            button.textContent = '✓ Scraped';
+
+
+
             setTimeout(() => {
                 button.disabled = false;
                 button.textContent = 'Scrape Lows';
             }, 2000);
+
+        } catch (error) {
+            console.error('Error in scrapeLiveLows:', error);
+            button.textContent = 'Error!';
+            // Reset the button after a delay so the user can try again.
+            setTimeout(() => {
+                button.disabled = false;
+                button.textContent = 'Scrape Lows';
+            }, 3000);
         }
     };
+
 
     const deleteInventoryItem = async (itemId) => {
         if (!confirm("Are you sure you want to delete this item?")) return;

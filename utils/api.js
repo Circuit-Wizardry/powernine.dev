@@ -10,6 +10,7 @@ import { chromium } from 'playwright'; // Import Playwright
 // Import your scraper functions (ensure paths are correct)
 import { scrapeTcgplayerData } from '../scrapers/tcgplayer.js';
 import { scrapeManaPoolListings } from '../scrapers/manapool.js';
+import { scrapeStarCityGamesBuylist } from '../scrapers/starcitygames.js';
 
 const FIXED_SHIPPING_EXPENSE = 1.25; // The cost of an envelope and materials
 
@@ -83,69 +84,125 @@ export default function(db) {
     const upload = multer({ storage });
 
 
-
-router.post('/scrape-lows', express.json(), async (req, res) => {
-    // `condition` is optional, and `store` is a new optional parameter
-    const { tcgplayerId, cardName, setCode, collectorNumber, foilType, condition, store } = req.body;
-
-    // `condition` and `store` are not required
-    if (!tcgplayerId || !cardName || !setCode || !collectorNumber || !foilType) {
-        return res.status(400).json({ error: 'Missing required card identifiers for scraping.' });
-    }
-
-    let browser;
-    try {
-        const logMessage = condition ? `${cardName} (${condition} ${foilType})` : `${cardName} (Cheapest ${foilType})`;
-        
-        browser = await chromium.launch({ headless: true });
-        const context = await browser.newContext({
-            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        });
-        const page = await context.newPage();
-        
-        let tcgLow = null;
-        let manaPoolLow = null;
-        
-        // --- NEW: Conditional scraping logic based on the 'store' parameter ---
-
-        // If the store is specified as 'manapool', only scrape ManaPool.
-        if (store === 'manapool') {
-            console.log(`🚀 Starting ManaPool-only scrape job for: ${logMessage}`);
-
-            const cardSlug = cardName.toLowerCase().replace(/\s/g, '-').replace(/[^a-z0-9-]/g, '');
-            const manaPoolUrl = `https://manapool.com/card/${setCode.toLowerCase()}/${collectorNumber}/${cardSlug}`;
-            const mpData = await scrapeManaPoolListings(page, manaPoolUrl, foilType, condition ? condition : "DMG");
-            manaPoolLow = mpData.cheapestPrice;
-            
-            console.log(`✅ Scrape successful: MP=${manaPoolLow}`);
-        } 
-        // Otherwise, perform the default behavior of scraping both.
-        else {
-            console.log(`🚀 Starting full scrape job for: ${logMessage}`);
-
-            const tcgData = await scrapeTcgplayerData(page, tcgplayerId, foilType, condition ? condition : "DMG");
-            tcgLow = tcgData.cheapestPrice;
-            
-            const cardSlug = cardName.toLowerCase().replace(/\s/g, '-').replace(/[^a-z0-9-]/g, '');
-            const manaPoolUrl = `https://manapool.com/card/${setCode.toLowerCase()}/${collectorNumber}/${cardSlug}`;
-            const mpData = await scrapeManaPoolListings(page, manaPoolUrl, foilType, condition ? condition : "DMG");
-            manaPoolLow = mpData.cheapestPrice;
-
-            console.log(`✅ Scrape successful: TCG=${tcgLow}, MP=${manaPoolLow}`);
+    router.post('/scrape-buylists', express.json(), async (req, res) => {
+        if (!req.body) {
+            return res.status(400).json({ error: 'Request body is missing.' });
         }
-        
-        res.json({
-            tcgLow: tcgLow,       // Will be null if only ManaPool was scraped
-            manaPoolLow: manaPoolLow
-        });
 
-    } catch (error) {
-        console.error(`❌ Scrape failed for ${cardName}:`, error);
-        res.status(500).json({ error: 'Failed to scrape pricing data.' });
-    } finally {
-        if (browser) await browser.close();
-    }
-});
+        const { cardName, setCode, collectorNumber, foilType } = req.body;
+
+        if (!cardName || !setCode || !collectorNumber || !foilType) {
+            return res.status(400).json({ error: 'Missing required card identifiers for scraping.' });
+        }
+
+        let browser;
+        try {
+            console.log(`🚀 Starting buylist scrape job for: ${cardName} (${setCode} #${collectorNumber})`);
+
+            // Launch a single browser instance for all scrapes in this job.
+            browser = await chromium.launch({ headless: true });
+            const context = await browser.newContext({
+                userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            });
+            const page = await context.newPage();
+
+            // --- Modular Scraping Section ---
+            // Each scraper is called here. The results are collected in an object.
+            // Using Promise.all would run them in parallel, but sequential can be
+            // safer to avoid rate-limiting issues.
+
+            const scgPrice = await scrapeStarCityGamesBuylist(page, cardName, collectorNumber, foilType);
+            
+            // EXAMPLE: This is where you would add another scraper call.
+            // const ckPrice = await scrapeCardKingdomBuylist(page, cardName, setCode, collectorNumber, foilType);
+
+
+            // --- Consolidate Results ---
+            const buylistData = {
+                scgBuylist: scgPrice,
+                // ckBuylist: ckPrice, // Add results from other scrapers here
+            };
+
+            console.log(`✅ Buylist scrape successful:`, buylistData);
+            
+            res.json(buylistData);
+
+        } catch (error) {
+            console.error(`❌ Buylist scrape failed for ${cardName}:`, error);
+            res.status(500).json({ error: 'An unexpected error occurred during the buylist scrape.' });
+        } finally {
+            if (browser) await browser.close();
+        }
+    });
+
+
+
+    router.post('/scrape-lows', express.json(), async (req, res) => {
+        // `condition` is optional, and `store` is a new optional parameter
+        const { tcgplayerId, cardName, setCode, collectorNumber, foilType, condition, store } = req.body;
+
+        // `condition` and `store` are not required
+        if (!tcgplayerId || !cardName || !setCode || !collectorNumber || !foilType) {
+            return res.status(400).json({ error: 'Missing required card identifiers for scraping.' });
+        }
+
+        let browser;
+        try {
+            const logMessage = condition ? `${cardName} (${condition} ${foilType})` : `${cardName} (Cheapest ${foilType})`;
+            
+            browser = await chromium.launch({ headless: true });
+            const context = await browser.newContext({
+                userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            });
+            const page = await context.newPage();
+            
+            let tcgLow = null;
+            let tcgLowPlusShipping = null;
+            let manaPoolLow = null;
+            
+            // --- NEW: Conditional scraping logic based on the 'store' parameter ---
+
+            // If the store is specified as 'manapool', only scrape ManaPool.
+            if (store === 'manapool') {
+                console.log(`🚀 Starting ManaPool-only scrape job for: ${logMessage}`);
+
+                const cardSlug = cardName.toLowerCase().replace(/\s/g, '-').replace(/[^a-z0-9-]/g, '');
+                const manaPoolUrl = `https://manapool.com/card/${setCode.toLowerCase()}/${collectorNumber}/${cardSlug}`;
+                const mpData = await scrapeManaPoolListings(page, manaPoolUrl, foilType, condition ? condition : "DMG");
+                manaPoolLow = mpData.cheapestPrice;
+                
+                console.log(`✅ Scrape successful: MP=${manaPoolLow}`);
+            } 
+            // Otherwise, perform the default behavior of scraping both.
+            else {
+                console.log(`🚀 Starting full scrape job for: ${logMessage}`);
+
+                const tcgData = await scrapeTcgplayerData(page, tcgplayerId, foilType, condition ? condition : "DMG");
+                console.log (`   -> TCGplayer scrape returned:`, tcgData);
+                tcgLow = tcgData.cheapestListing?.itemPrice ?? null; 
+                tcgLowPlusShipping = tcgData.cheapestListing?.totalPrice ?? null;
+                
+                const cardSlug = cardName.toLowerCase().replace(/\s/g, '-').replace(/[^a-z0-9-]/g, '');
+                const manaPoolUrl = `https://manapool.com/card/${setCode.toLowerCase()}/${collectorNumber}/${cardSlug}`;
+                const mpData = await scrapeManaPoolListings(page, manaPoolUrl, foilType, condition ? condition : "DMG");
+                manaPoolLow = mpData.cheapestPrice;
+
+                console.log(`✅ Scrape successful: TCG=${tcgLow}, MP=${manaPoolLow}`);
+            }
+            
+            res.json({
+                tcgLow: tcgLow, // Will be null if only ManaPool was scraped
+                tcgLowPlusShipping: tcgLowPlusShipping,
+                manaPoolLow: manaPoolLow
+            });
+
+        } catch (error) {
+            console.error(`❌ Scrape failed for ${cardName}:`, error);
+            res.status(500).json({ error: 'Failed to scrape pricing data.' });
+        } finally {
+            if (browser) await browser.close();
+        }
+    });
 
 
     // UPDATED: GET all inventory items (selects all new columns)
@@ -164,15 +221,16 @@ router.post('/scrape-lows', express.json(), async (req, res) => {
     // NEW: PUT endpoint to save scraped prices for an item
     router.put('/inventory/:id/prices', express.json(), (req, res) => {
         const { id } = req.params;
-        const { tcgLow, manaPoolLow } = req.body;
+        const { tcgLow, manaPoolLow, tcgLowPlusShipping } = req.body;
 
         const sql = `UPDATE inventory SET 
                         tcgLow = ?, 
-                        manaPoolLow = ?, 
+                        manaPoolLow = ?,
+                        tcgLowPlusShipping = ?,
                         pricesLastUpdatedAt = CURRENT_TIMESTAMP 
                      WHERE id = ?`;
         
-        db.run(sql, [tcgLow, manaPoolLow, id], function(err) {
+        db.run(sql, [tcgLow, manaPoolLow, tcgLowPlusShipping, id], function(err) {
             if (err) return res.status(400).json({ error: err.message });
             if (this.changes === 0) return res.status(404).json({ message: 'Item not found.'});
             res.status(200).json({ message: 'Prices updated successfully.' });

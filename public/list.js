@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchBar = document.getElementById('search-bar');
     const saveListBtn = document.getElementById('save-list-btn');
     const sortButtons = document.querySelectorAll('.sort-button');
+    const buylistAnalysisBtn = document.getElementById('buylist-analysis-btn'); // New button element
     const addCardSearch = document.getElementById('add-card-search');
     const addCardResults = document.getElementById('add-card-results');
     const totalValueEl = document.getElementById('total-value-amount');
@@ -167,6 +168,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 isLoaded: false,
                 price: 0, ckPrice: 0, chPrice: 0
             };
+
+            
             
             allCards.push(newCard);
             // If this is the first card, clear the "empty" message
@@ -449,6 +452,8 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Set the "Switch to Binder" link correctly
             switchViewBtn.href = `/binder/${listId}`;
+            buylistAnalysisBtn.href = `/list-buylist/${listId}`;
+
             
             renderCardList(allCards);
             fetchAllCardDetails();

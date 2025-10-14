@@ -6,6 +6,6 @@ document.getElementById('transaction-history-btn').addEventListener('click', fun
   window.location.href = '/transactions.html';
 });
 
-document.getElementById('generate-full-csv').addEventListener('click', function() {
-  window.location.href = '/list-pricer.html';
-});
+// document.getElementById('generate-full-csv').addEventListener('click', function() {
+//   window.location.href = '/list-pricer.html';
+// });

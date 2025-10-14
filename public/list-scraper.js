@@ -114,6 +114,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             statusCell.innerHTML = `<span class="status status-scraping">Scraping...</span>`;
             
+
             const res = await fetch('/api/scrape-lows', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -183,7 +184,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const link = document.createElement("a");
         const url = URL.createObjectURL(blob);
         link.setAttribute("href", url);
-        link.setAttribute("download", "inventory_manabox_export.csv");
+        link.setAttribute("download", "manapool_export.csv");
         link.style.visibility = 'hidden';
         document.body.appendChild(link);
         link.click();
