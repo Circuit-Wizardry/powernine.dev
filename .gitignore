@@ -136,4 +136,7 @@ dist
 .pnp.*
 data/
 /backups
-/data
+/data/AllPricesToday.json
+/data/AllPrintings.sqlite
+/data/AllPrices.json
+/data/AllPrices.json.tar.gz
