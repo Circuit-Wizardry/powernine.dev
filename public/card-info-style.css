@@ -127,3 +127,44 @@ body {
         align-items: stretch; 
     }
 }
+
+/* --- ADDED STYLES --- */
+
+.table-header-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.table-header-container .table-header {
+    margin: 0; /* Remove margin from h3 when it's inside the flex container */
+}
+
+.scrape-btn {
+    background-color: #007bff;
+    color: white;
+    padding: 6px 14px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    transition: background-color 0.2s ease-in-out, transform 0.1s ease;
+    white-space: nowrap; /* Prevents text from wrapping if button is narrow */
+}
+
+.scrape-btn:hover {
+    background-color: #0069d9;
+}
+
+.scrape-btn:active {
+    transform: translateY(1px);
+}
+
+.scrape-btn:disabled {
+    background-color: #5a6268;
+    color: #cccccc;
+    cursor: not-allowed;
+    transform: none;
+}

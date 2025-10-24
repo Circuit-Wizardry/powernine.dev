@@ -399,3 +399,174 @@ h1 { margin: 0; }
     border-radius: 12px;
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
 }
+
+/* --- NEW STYLES FOR ADD CARD SEARCH --- */
+
+/* Styles for the Awesomplete (card name) dropdown.
+  This fixes the "overlapping" issue by giving it a z-index
+  and matching it to the dark theme.
+*/
+div.awesomplete {
+  display: block; /* Ensure it takes up the full width */
+  position: relative; /* Context for its dropdown */
+}
+
+div.awesomplete > ul {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 11; /* Make sure it's on top of other content */
+  margin-top: 4px; /* A little space from the search bar */
+  background: #333;
+  border: 1px solid var(--border-color);
+  border-radius: 0 0 8px 8px; /* Match the search results box */
+  box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+div.awesomplete > ul > li {
+  padding: 10px 14px;
+  color: var(--text-color);
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  font-size: 0.95em;
+}
+
+div.awesomplete > ul > li:last-child {
+  border-bottom: none;
+}
+
+div.awesomplete > ul > li:hover {
+  background-color: #444;
+}
+
+/* This highlights the currently selected item */
+div.awesomplete > ul > li[aria-selected="true"] {
+  background-color: var(--primary-color);
+  color: var(--bg-color);
+  font-weight: 600;
+}
+
+/* Style the text matching from Awesomplete */
+div.awesomplete mark {
+  background: none;
+  font-weight: bold;
+  color: var(--primary-color);
+}
+
+/*
+  Improvements for the Printing Results (#add-card-results)
+  This makes the results list cleaner and fixes the circular image.
+*/
+
+/* Override existing rule to add border and box-shadow for consistency */
+#add-card-results {
+  position: absolute;
+  top: 100%; 
+  left: 0;
+  right: 0;
+  background-color: #333;
+  border: 1px solid var(--border-color);
+  border-top: none; /* The search bar provides the top border */
+  border-radius: 0 0 8px 8px;
+  max-height: 300px;
+  overflow-y: auto;
+  z-index: 10; 
+  box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+}
+
+/* Override existing rule for better spacing and hover effect */
+.printing-result-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color);
+  cursor: default;
+  transition: background-color 0.15s ease;
+}
+
+/* Add a hover effect to the whole item */
+.printing-result-item:hover {
+    background-color: #3a3a3a;
+}
+
+.printing-result-item:last-child {
+  border-bottom: none;
+}
+
+/* FIX: Use a rounded rectangle for the art crop, not a circle.
+  Also making it slightly larger.
+*/
+.printing-result-item img {
+  width: 60px;  /* Larger width */
+  height: 45px; /* Corresponding 4:3 height for art crop */
+  border-radius: 4px; /* Rounded rectangle */
+  object-fit: cover;
+  flex-shrink: 0;
+  background-color: #111; /* Dark background for loading */
+}
+
+/* Container for the text info */
+.printing-result-info {
+    display: flex;
+    flex-direction: column; /* Stack name and set info */
+    flex-grow: 1;
+    line-height: 1.4;
+}
+
+.printing-result-item div strong {
+  color: white;
+  font-size: 1.05em;
+}
+
+/* Override to remove margin */
+.printing-result-item div span {
+  color: #999;
+  font-size: 0.85em;
+  margin-left: 0; 
+}
+
+/* Style for the collector number */
+.collector-number {
+    color: #aaa;
+    font-size: 0.85em;
+    font-weight: bold;
+}
+
+.printing-result-item .finishes {
+  margin-left: auto; 
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0; /* Don't let the buttons wrap */
+}
+
+/* Override for a cleaner pill-style button */
+.finish-btn {
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  color: #ccc;
+  padding: 6px 12px; 
+  border-radius: 16px; /* Pill shape */
+  font-size: 0.8em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.finish-btn:hover {
+  background-color: var(--primary-color);
+  color: var(--bg-color);
+  border-color: var(--primary-color);
+}
+
+.visually-hidden {
+    position: absolute !important;
+    height: 1px; 
+    width: 1px; 
+    overflow: hidden;
+    clip: rect(1px, 1px, 1px, 1px); 
+    white-space: nowrap; 
+}

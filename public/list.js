@@ -2,14 +2,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- DOM ELEMENTS ---
     const container = document.getElementById('card-list-container');
     const switchViewBtn = document.getElementById('switch-view-btn');
-    const searchBar = document.getElementById('search-bar');
+    const searchBar = document.getElementById('search-bar'); // This is the MAIN list filter
     const saveListBtn = document.getElementById('save-list-btn');
     const sortButtons = document.querySelectorAll('.sort-button');
-    const buylistAnalysisBtn = document.getElementById('buylist-analysis-btn'); // New button element
-    const addCardSearch = document.getElementById('add-card-search');
+    const buylistAnalysisBtn = document.getElementById('buylist-analysis-btn');
+    const addCardSearch = document.getElementById('add-card-search'); // This is for ADDING new cards
     const addCardResults = document.getElementById('add-card-results');
     const totalValueEl = document.getElementById('total-value-amount');
-    const warningBanner = document.getElementById('save-warning'); // New element
+    const warningBanner = document.getElementById('save-warning');
     const previewer = document.getElementById('card-previewer');
     const previewImage = document.getElementById('card-preview-image');
     const progressLabel = document.getElementById('progressLabel');
@@ -35,6 +35,31 @@ document.addEventListener('DOMContentLoaded', () => {
             return v.toString(16);
         });
     };
+
+    /**
+     * Normalizes a string for fuzzy searching.
+     * @param {string} str - The string to normalize.
+     * @returns {string} The normalized string.
+     */
+    const normalizeString = (str) => {
+        return str
+            .toLowerCase() // Convert to lowercase
+            .replace(/[^\w\s]|_/g, "") // Remove all non-word characters except whitespace
+            .replace(/\s+/g, " "); // Collapse multiple whitespaces into a single space
+    };
+
+    /**
+     * Awesomplete filter function for matching card names.
+     * @param {object|string} text - The suggestion object or text.
+     * @param {string} input - The user's input.
+     * @returns {boolean} True if the text includes the input, false otherwise.
+     */
+    const cardFilter = function(text, input) {
+        let normalizedText = normalizeString(text.label || text);
+        let normalizedInput = normalizeString(input);
+        return normalizedText.includes(normalizedInput);
+    };
+
     const calculateBreakevenPrice = (buyPrice, feeRate, flatFee) => {
         if (buyPrice <= 0) return 0;
         return (buyPrice + flatFee) / (1 - feeRate) + 1.25; // Adding $1.25 shipping buffer
@@ -59,8 +84,14 @@ document.addEventListener('DOMContentLoaded', () => {
           warningBanner.style.display = 'block'; // Show the warning
       }
     };
-    const searchForPrintings = async (cardName) => {
-        if (!cardName || cardName.length < 3) {
+
+    /**
+     * Fetches and renders printings for a selected card name.
+     * This function is triggered by Awesomplete.
+     * @param {string} cardName - The exact card name selected from autocomplete.
+     */
+    const searchForPrintingsByCardName = async (cardName) => {
+        if (!cardName) {
             addCardResults.innerHTML = '';
             return;
         }
@@ -68,35 +99,63 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch(`/api/printings/${encodeURIComponent(cardName)}`);
             if (!response.ok) throw new Error();
-            const printings = await response.json();
+            const allPrintings = await response.json();
 
-            addCardResults.innerHTML = '';
-            printings.forEach(printing => {
-                // --- THIS IS THE FIX ---
+            // --- Data Restructuring (from example) ---
+            // Combines printings that are duplicates (e.g., same card, different finish)
+            // into one entry with a Set of all available finishes.
+            const printingsMap = new Map();
+            for (const printing of allPrintings) {
+                if (!printingsMap.has(printing.id)) {
+                    printingsMap.set(printing.id, {
+                        ...printing,
+                        available_finishes: new Set() // Use a Set to store finishes
+                    });
+                }
+                // Add all finishes from this printing object to the Set
+                printing.finishes.forEach(finish => {
+                    printingsMap.get(printing.id).available_finishes.add(finish);
+                });
+            }
+            // Get the unique, combined printings
+            const combinedPrintings = Array.from(printingsMap.values());
+
+            addCardResults.innerHTML = ''; // Clear loader
+            
+            let resultsFound = false;
+            combinedPrintings.forEach(printing => {
                 // Add a "guard clause" to skip any printing that doesn't have an image_uris object.
                 if (!printing.image_uris) {
                     return; // Acts like 'continue' in a forEach loop
                 }
+                resultsFound = true; // We found at least one valid card
 
                 const resultItem = document.createElement('div');
                 resultItem.className = 'printing-result-item';
                 
-                let finishesHTML = printing.finishes.map(f => 
+                // --- NEW: Use the combined Set of finishes to create buttons ---
+                let finishesHTML = Array.from(printing.available_finishes).map(f => 
                     `<button class="finish-btn" data-finish="${f}">${f}</button>`
                 ).join('');
 
-                // Now this line is safe because we've already checked for image_uris
+                // --- NEW: Updated HTML with collector # and hover data ---
                 resultItem.innerHTML = `
-                    <img src="${printing.image_uris.art_crop}" loading="lazy" alt="${printing.name} art crop">
-                    <div>
+                    <img src="${printing.image_uris.art_crop}" 
+                           loading="lazy" 
+                           alt="${printing.name} art crop" 
+                           class="printing-result-image" 
+                           data-full-art="${printing.image_uris.normal}"
+                    >
+                    <div class="printing-result-info">
                         <strong>${printing.name}</strong>
                         <span>(${printing.set_name})</span>
+                        <span class="collector-number">#${printing.collector_number}</span>
                     </div>
                     <div class="finishes">${finishesHTML}</div>
                 `;
                 addCardResults.appendChild(resultItem);
 
-                // Add event listeners to the new finish buttons
+                // Add event listeners to the new finish buttons (same as original)
                 resultItem.querySelectorAll('.finish-btn').forEach(button => {
                     button.addEventListener('click', () => {
                         const selectedFinish = button.dataset.finish;
@@ -109,13 +168,14 @@ document.addEventListener('DOMContentLoaded', () => {
                             foilType: foilTypeForDB,
                             quantity: 1
                         };
+                        // This function already handles clearing the search bar/results
                         addCardToList(cardToAdd);
                     });
                 });
             });
 
             // Check if any results were actually added to the DOM
-            if (addCardResults.childElementCount === 0) {
+            if (!resultsFound) {
                 throw new Error("No printings with valid images found.");
             }
 
@@ -123,6 +183,7 @@ document.addEventListener('DOMContentLoaded', () => {
             addCardResults.innerHTML = '<p>No printings found.</p>';
         }
     };
+
     const getBreakevenTableHTML = (marketPrice, scrapedLow) => {
         const basePrice = scrapedLow || marketPrice; // Use scraped low if it exists
         if (!basePrice || basePrice <= 0) {
@@ -169,8 +230,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 price: 0, ckPrice: 0, chPrice: 0
             };
 
-            
-            
             allCards.push(newCard);
             // If this is the first card, clear the "empty" message
             if (allCards.length === 1) container.innerHTML = ''; 
@@ -178,6 +237,7 @@ document.addEventListener('DOMContentLoaded', () => {
             searchAndRender();
             await fetchSingleCardDetails(newCard);
 
+            // Clear the search input and results after successfully adding a card
             addCardSearch.value = '';
             addCardResults.innerHTML = '';
         } catch (error) {
@@ -274,7 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 label: vendor.name, data: pricePoints, borderColor: vendor.color,
                 fill: false, tension: 0.4, pointRadius: 0, spanGaps: true
             };
-        });
+  .0     });
 
         new Chart(canvas.getContext('2d'), {
             type: 'line',
@@ -327,8 +387,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const existingElement = document.getElementById(`card-${card.id}`);
             if (existingElement) {
                 existingElement.classList.remove('skeleton');
-                // --- THIS IS THE FIX ---
-                // Use the single, unified function to update the HTML
                 existingElement.innerHTML = getCardHTML(card);
                 renderChart(card);
             }
@@ -342,13 +400,8 @@ document.addEventListener('DOMContentLoaded', () => {
     /**
      * Fetches detailed data for all cards and updates them in place.
      */
-    /**
-     * REFACTORED: Loops through all cards and fetches their details individually.
-     */
     const fetchAllCardDetails = async () => {
         totalCollectionValue = 0;
-        // const delayBetweenRequests = 1;
-
         // Loop through each card individually
         for (const card of allCards) {
             // Wait for the details of the current card to be fetched and processed
@@ -356,8 +409,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             document.getElementById('myBar').style.width = `${((allCards.indexOf(card) + 1) / allCards.length) * 100}%`;
             progressLabel.textContent = `Loading card ${allCards.indexOf(card) + 1} of ${allCards.length}`;
-            // After the request is done, pause for 125ms before the next loop iteration
-            // await new Promise(resolve => setTimeout(resolve, delayBetweenRequests));
         }
     };
     
@@ -392,12 +443,11 @@ document.addEventListener('DOMContentLoaded', () => {
             container.innerHTML = '<p>No list ID found. Please import a CSV file first.</p>';
             return;
         }
-        // --- THIS IS THE UPDATED UNLOAD LOGIC ---
+
+        // --- UPDATED UNLOAD LOGIC ---
         const handleUnload = (event) => {
             if (!isListSaved) {
-                // This triggers the browser's "Leave site?" confirmation dialog.
                 event.preventDefault();
-                // This is required for some older browsers.
                 event.returnValue = '';
             }
         };
@@ -408,29 +458,31 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!listResponse.ok) throw new Error("Could not find this list.");
             const importedCards = await listResponse.json();
 
-            isListSaved = importedCards.isPermanent; // Set our state from the server's response
-            updateSaveStateUI(); // Update the UI immediately
+            isListSaved = importedCards.isPermanent; // Set state from server
+            updateSaveStateUI(); // Update UI
 
             // Only add the "leave page" warning if the list is NOT already saved
             if (!isListSaved) {
-                const handleUnload = (event) => {
-                    if (!isListSaved) {
-                        event.preventDefault();
-                        event.returnValue = '';
-                    }
-                };
-                window.addEventListener('beforeunload', handleUnload);
-
-                // When the list is successfully saved, remove the listener
+                // We already added the 'beforeunload' listener above, but 
+                  // we need to set up the 'click' listener to remove it.
                 saveListBtn.addEventListener('click', async () => {
-                    // ... fetch logic to save the list ...
-                    const response = await fetch(`/api/list/${listId}/save`, { method: 'POST' });
-                    if (response.ok) {
-                        isListSaved = true;
-                        updateSaveStateUI(); // Hide the button and warning
-                        window.removeEventListener('beforeunload', handleUnload); // IMPORTANT
-                    } else {
+                    try {
+                        saveListBtn.disabled = true;
+                        saveListBtn.textContent = 'Saving...';
+                        const response = await fetch(`/api/list/${listId}/save`, { method: 'POST' });
+                        if (response.ok) {
+                            isListSaved = true;
+                            saveListBtn.textContent = '✓ Saved!';
+                            updateSaveStateUI(); // Hide button and warning
+                            window.removeEventListener('beforeunload', handleUnload); // IMPORTANT
+                        } else {
+                            saveListBtn.textContent = 'Save Failed';
+                            saveListBtn.disabled = false;
+                        }
+                    } catch (error) {
+                        console.error(error);
                         saveListBtn.textContent = 'Save Failed';
+                        saveListBtn.disabled = false;
                     }
                 });
             }
@@ -438,11 +490,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (importedCards.content.length === 0) {
                 document.getElementById('card-list-container').innerHTML = 
                     '<p class="empty-list-message">Your list is empty. Use the search bar above to add your first card.</p>';
-                // Hide the loader if it's there
-                // Hide the toolbar if it's not needed for an empty list
                 return; // Stop here, no cards to render
             }
-
 
             allCards = importedCards.content.map((card, index) => ({
                 ...card,
@@ -450,10 +499,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 isLoaded: false, price: 0, ckPrice: 0, chPrice: 0
             }));
             
-            // Set the "Switch to Binder" link correctly
             switchViewBtn.href = `/binder/${listId}`;
             buylistAnalysisBtn.href = `/list-buylist/${listId}`;
-
             
             renderCardList(allCards);
             fetchAllCardDetails();
@@ -464,15 +511,51 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // --- EVENT LISTENERS ---
-    // --- ADD: Event listener for the new search bar ---
-    let debounceTimer;
-    addCardSearch.addEventListener('input', () => {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => {
-            searchForPrintings(addCardSearch.value);
-        }, 300); // Debounce to avoid excessive API calls
+
+    // --- NEW: Awesomplete for Add Card Search ---
+    // Fetch the list of all card names for the autocomplete
+    fetch('/api/card-names')
+        .then(res => res.json())
+        .then(data => {
+            // Attach Awesomplete to the 'add-card-search' input
+            new Awesomplete(addCardSearch, { list: data, filter: cardFilter });
+        });
+
+    // Listen for the user to select a card from the autocomplete list
+    addCardSearch.addEventListener('awesomplete-selectcomplete', (event) => {
+        // When a card is selected, fetch its printings
+        searchForPrintingsByCardName(event.text.value);
     });
 
+    // --- NEW: Hover Preview for Add Card Search Results ---
+    // Use event delegation on the results container
+    addCardResults.addEventListener('mouseover', (event) => {
+        // Check if the element being hovered is a printing image
+        if (event.target.matches('.printing-result-image')) {
+            // Get the full art URL from the data-attribute and show the previewer
+            previewImage.src = event.target.dataset.fullArt;
+            previewer.style.display = 'block';
+        }
+    });
+
+    addCardResults.addEventListener('mouseout', (event) => {
+        // Hide the previewer when the mouse leaves the image
+        if (event.target.matches('.printing-result-image')) {
+            previewer.style.display = 'none';
+        }
+    });
+
+    addCardResults.addEventListener('mousemove', (event) => {
+        // Move the previewer with the cursor
+        if (previewer.style.display === 'block') {
+            previewer.style.left = event.clientX + 'px';
+            previewer.style.top = event.clientY + 'px';
+        }
+    });
+    // --- END OF NEW ADD CARD LISTENERS ---
+
+
+    // --- Main Card List Event Listeners ---
     container.addEventListener('click', async (event) => {
         if (!event.target.matches('.scrape-btn')) return;
 
@@ -486,7 +569,6 @@ document.addEventListener('DOMContentLoaded', () => {
         button.textContent = 'Scraping...';
 
         try {
-            // --- UPDATED: The body of the request now includes setCode and collectorNumber ---
             const response = await fetch('/api/scrape-lows', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -496,23 +578,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     setCode: card.setCode,
                     collectorNumber: card.collectorNumber,
                     foilType: card.foilType
-                })
+                 })
             });
-
 
             if (!response.ok) throw new Error('Scrape failed on server.');
 
             const scrapedData = await response.json();
             
-            // Update the card object with new data
             card.tcgLow = scrapedData.tcgLow;
             card.manaPoolLow = scrapedData.manaPoolLow;
 
-            // Update the UI with the new data
             document.getElementById(`tcg-low-${card.id}`).textContent = card.tcgLow ? `$${card.tcgLow.toFixed(2)}` : 'N/A';
             document.getElementById(`mp-low-${card.id}`).textContent = card.manaPoolLow ? `$${card.manaPoolLow.toFixed(2)}` : 'N/A';
 
-            // Recalculate and re-render the break-even table with the new TCG Low price
             const analysisContainer = document.getElementById(`analysis-${card.id}`);
             analysisContainer.innerHTML = getBreakevenTableHTML(card.price, card.tcgLow);
 
@@ -528,35 +606,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-
-    saveListBtn.addEventListener('click', async () => {
-        try {
-            saveListBtn.disabled = true;
-            saveListBtn.textContent = 'Saving...';
-            const response = await fetch(`/api/list/${listId}/save`, {
-                method: 'POST'
-            });
-            if (!response.ok) throw new Error('Failed to save the list.');
-            
-            isListSaved = true;
-            saveListBtn.textContent = '✓ Saved!';
-
-            const handleUnload = (event) => {
-                if (!isListSaved) {
-                    event.preventDefault();
-                    event.returnValue = '';
-                }
-            };
-            window.removeEventListener('beforeunload', handleUnload);
-            
-        } catch (error) {
-            console.error(error);
-            saveListBtn.textContent = 'Save Failed';
-            saveListBtn.disabled = false; // Re-enable button on failure
-        }
-    });
+    /* Note: The 'saveListBtn' click listener is now defined inside 
+     initializePage() so it can be conditionally added only if 
+     the list is not already permanent, and so it has access
+     to the 'handleUnload' function to remove the 'beforeunload' listener.
+    */
     
+    // This listener is for filtering the MAIN card list
     searchBar.addEventListener('input', searchAndRender);
+
     sortButtons.forEach(button => {
         button.addEventListener('click', () => {
             const sortKey = button.dataset.sort;
@@ -569,7 +627,7 @@ document.addEventListener('DOMContentLoaded', () => {
             sortButtons.forEach(btn => btn.classList.remove('active'));
             button.classList.add('active');
             sortAndRender();
-        });
+      _   });
     });
 
     // Use event delegation on the main container for efficiency
@@ -589,7 +647,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Move the previewer with the cursor (this listener remains the same)
+    // Move the previewer with the cursor
     container.addEventListener('mousemove', (event) => {
         if (previewer.style.display === 'block') {
             previewer.style.left = event.clientX + 'px';

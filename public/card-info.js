@@ -1,6 +1,7 @@
 // card-info.js
 document.addEventListener('DOMContentLoaded', async () => {
     const container = document.querySelector('.container');
+    let scryfallCardData; // Variable to hold card data for event listeners
 
     // --- Helper Functions ---
     const formatPrice = (price) => price ? `$${price.toFixed(2)}` : 'N/A';
@@ -21,6 +22,142 @@ document.addEventListener('DOMContentLoaded', async () => {
         return priceHistory[latestDate];
     };
 
+    // --- Scraper Event Handlers ---
+    async function handleScrapeLows() {
+        const btn = document.getElementById('scrape-lows-btn');
+        btn.disabled = true;
+        btn.textContent = 'Scraping...';
+
+        try {
+            const tcgplayerId = scryfallCardData.tcgplayer_id;
+            if (!tcgplayerId) {
+                throw new Error('TCGPlayer ID not found for this card.');
+            }
+
+            const basePayload = {
+                cardName: scryfallCardData.name,
+                setCode: scryfallCardData.set,
+                collectorNumber: scryfallCardData.collector_number,
+                tcgplayerId: tcgplayerId,
+            };
+
+            // Scrape for both normal and foil prices in parallel
+            const [normalResponse, foilResponse] = await Promise.all([
+                fetch('/api/scrape-lows', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...basePayload, foilType: 'normal' }),
+                }),
+                fetch('/api/scrape-lows', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...basePayload, foilType: 'foil' }),
+                })
+            ]);
+
+            if (!normalResponse.ok || !foilResponse.ok) {
+                const errorText = await (normalResponse.ok ? foilResponse.text() : normalResponse.text());
+                throw new Error(`Failed to fetch scraped prices. Server says: ${errorText}`);
+            }
+
+            const normalData = await normalResponse.json();
+            const foilData = await foilResponse.json();
+
+            const pricesTableBody = document.getElementById('pricesTable').querySelector('tbody');
+
+            // Upsert TCGPlayer Live Row
+            let tcgLiveRow = document.getElementById('tcg-live-row');
+            if (!tcgLiveRow) {
+                tcgLiveRow = document.createElement('tr');
+                tcgLiveRow.id = 'tcg-live-row';
+                pricesTableBody.appendChild(tcgLiveRow);
+            }
+            tcgLiveRow.innerHTML = `
+                <td>tcgplayer (live)</td>
+                <td>${formatPrice(normalData.tcgLowPlusShipping)}</td>
+                <td>${formatPrice(foilData.tcgLowPlusShipping)}</td>
+            `;
+
+            // Upsert ManaPool Live Row
+            let mpLiveRow = document.getElementById('mp-live-row');
+            if (!mpLiveRow) {
+                mpLiveRow = document.createElement('tr');
+                mpLiveRow.id = 'mp-live-row';
+                pricesTableBody.appendChild(mpLiveRow);
+            }
+            mpLiveRow.innerHTML = `
+                <td>manapool (live)</td>
+                <td>${formatPrice(normalData.manaPoolLow)}</td>
+                <td>${formatPrice(foilData.manaPoolLow)}</td>
+            `;
+
+        } catch (error) {
+            console.error('Error scraping lows:', error);
+            // In a real app, you'd show this in a UI element, not an alert.
+            alert(`Scraping failed: ${error.message}`);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Scrape Lows';
+        }
+    }
+
+    async function handleScrapeBuylists() {
+        const btn = document.getElementById('scrape-buylists-btn');
+        btn.disabled = true;
+        btn.textContent = 'Scraping...';
+        
+        try {
+            const basePayload = {
+                cardName: scryfallCardData.name,
+                setCode: scryfallCardData.set,
+                collectorNumber: scryfallCardData.collector_number,
+            };
+            
+            const [normalResponse, foilResponse] = await Promise.all([
+                fetch('/api/scrape-buylists', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...basePayload, foilType: 'normal' }),
+                }),
+                fetch('/api/scrape-buylists', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...basePayload, foilType: 'foil' }),
+                })
+            ]);
+
+            if (!normalResponse.ok || !foilResponse.ok) {
+                 const errorText = await (normalResponse.ok ? foilResponse.text() : normalResponse.text());
+                throw new Error(`Failed to fetch scraped buylist prices. Server says: ${errorText}`);
+            }
+
+            const normalData = await normalResponse.json();
+            const foilData = await foilResponse.json();
+
+            const buylistTableBody = document.getElementById('buylistPricesTable').querySelector('tbody');
+
+            let scgLiveRow = document.getElementById('scg-live-row');
+            if (!scgLiveRow) {
+                scgLiveRow = document.createElement('tr');
+                scgLiveRow.id = 'scg-live-row';
+                buylistTableBody.appendChild(scgLiveRow);
+            }
+            scgLiveRow.innerHTML = `
+                <td>starcitygames (live)</td>
+                <td>${formatPrice(normalData.scgBuylist)}</td>
+                <td>${formatPrice(foilData.scgBuylist)}</td>
+            `;
+
+        } catch (error) {
+            console.error('Error scraping buylists:', error);
+            alert(`Scraping failed: ${error.message}`);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Scrape Buylists';
+        }
+    }
+
+
     try {
         // 1. Get card identifiers from the URL path
         const pathParts = window.location.pathname.split('/').filter(p => p);
@@ -32,27 +169,31 @@ document.addEventListener('DOMContentLoaded', async () => {
         // 2. Fetch primary card data from Scryfall
         const scryfallResponse = await fetch(`https://api.scryfall.com/cards/${setCode}/${collectorNumber}`);
         if (!scryfallResponse.ok) throw new Error('Card not found on Scryfall.');
-        const cardData = await scryfallResponse.json();
+        scryfallCardData = await scryfallResponse.json();
 
         // 3. Inject the main HTML structure
-        // MODIFIED: Added a new table for buylist prices with the id "buylistPricesTable"
         container.innerHTML = `
             <div class="left-panel">
-                <img src="${cardData.image_uris?.large || ''}" alt="Card Image" class="card-image">
-                <div class="oracle-text">${formatOracleText(cardData.oracle_text)}</div>
+                <img src="${scryfallCardData.image_uris?.large || ''}" alt="Card Image" class="card-image">
+                <div class="oracle-text">${formatOracleText(scryfallCardData.oracle_text)}</div>
             </div>
             <div class="right-panel">
-                <h2 class="card-name">${cardData.name}</h2>
-                <p class="card-type">${cardData.type_line} <span class="mana-cost">${formatManaCost(cardData.mana_cost)}</span></p>
+                <h2 class="card-name">${scryfallCardData.name}</h2>
+                <p class="card-type">${scryfallCardData.type_line} <span class="mana-cost">${formatManaCost(scryfallCardData.mana_cost)}</span></p>
                 
-
-                <h3 class="table-header">today's market prices</h3>
+                <div class="table-header-container">
+                    <h3 class="table-header">today's market prices</h3>
+                    <button id="scrape-lows-btn" class="scrape-btn">Scrape Lows</button>
+                </div>
                 <table class="prices-table" id="pricesTable">
                     <thead><tr><th>vendor</th><th>normal</th><th>foil</th></tr></thead>
                     <tbody></tbody>
                 </table>
 
-                <h3 class="table-header">buylist prices</h3>
+                <div class="table-header-container">
+                    <h3 class="table-header">buylist prices</h3>
+                    <button id="scrape-buylists-btn" class="scrape-btn">Scrape Buylists</button>
+                </div>
                 <table class="prices-table" id="buylistPricesTable">
                     <thead><tr><th>vendor</th><th>normal</th><th>foil</th></tr></thead>
                     <tbody></tbody>
@@ -62,9 +203,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <canvas id="priceChart"></canvas>
             </div>
         `;
-        document.title = `${cardData.name} - Card Info`;
+        document.title = `${scryfallCardData.name} - Card Info`;
+        
+        // 4. Attach event listeners now that the buttons exist in the DOM
+        document.getElementById('scrape-lows-btn').addEventListener('click', handleScrapeLows);
+        document.getElementById('scrape-buylists-btn').addEventListener('click', handleScrapeBuylists);
 
-        // 4. Fetch all price data from YOUR server's unified API
+        // 5. Fetch all price data from YOUR server's unified API
         try {
             const apiResponse = await fetch(`/api/card/details/${setCode}/${collectorNumber}`);
             if (!apiResponse.ok) throw new Error('price data not found on server.');
@@ -76,7 +221,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             // Find elements AFTER they have been created by innerHTML
             const pricesTableBody = document.getElementById('pricesTable').querySelector('tbody');
-            const buylistPricesTableBody = document.getElementById('buylistPricesTable').querySelector('tbody'); // NEW: Get the new table's body
+            const buylistPricesTableBody = document.getElementById('buylistPricesTable').querySelector('tbody');
 
             // --- Populate Today's Vendor Price Table ---
             const paperPrices = priceData?.paper;
@@ -104,14 +249,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 pricesTableBody.innerHTML = '<tr><td colspan="3">no daily price data available.</td></tr>';
             }
 
-            // NEW: Section to populate the buylist table
             // --- Populate Today's Buylist Price Table ---
             let buylistVendorsFound = 0;
             if(paperPrices) {
-                const vendors = ['tcgplayer', 'cardkingdom', 'cardmarket']; // Can re-use or define a new list if needed
+                const vendors = ['tcgplayer', 'cardkingdom', 'cardmarket'];
                 vendors.forEach(vendor => {
-                    const buylistPrices = paperPrices[vendor]?.buylist; // Check for 'buylist' data
-                    // We only add a row if the vendor has a buylist section with actual price data
+                    const buylistPrices = paperPrices[vendor]?.buylist; 
                     if (buylistPrices && (Object.keys(buylistPrices.normal || {}).length > 0 || Object.keys(buylistPrices.foil || {}).length > 0)) {
                         buylistVendorsFound++;
                         const latestNormal = getLatestPriceEntry(buylistPrices.normal);
@@ -202,10 +345,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         } catch (priceError) {
             console.error('Price fetch error:', priceError);
-            const purchaseTable = document.getElementById('purchaseLinksTable');
-            if (purchaseTable) purchaseTable.querySelector('tbody').innerHTML = `<tr><td colspan="2">Could not load purchase data.</td></tr>`;
             const pricesTable = document.getElementById('pricesTable');
             if (pricesTable) pricesTable.querySelector('tbody').innerHTML = `<tr><td colspan="3">${priceError.message}</td></tr>`;
+             const buylistPricesTable = document.getElementById('buylistPricesTable');
+            if (buylistPricesTable) buylistPricesTable.querySelector('tbody').innerHTML = `<tr><td colspan="3">${priceError.message}</td></tr>`;
         }
 
     } catch (error) {
