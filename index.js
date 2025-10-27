@@ -1,7 +1,6 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import basicAuth from 'basic-auth';
 import sqlite3Base from 'sqlite3';
 import cron from 'node-cron';
 import { exec } from 'child_process';
@@ -11,6 +10,8 @@ import cors from 'cors';
 import multer from 'multer';
 import fs from 'fs';
 import { initializeCardNameCache } from './utils/card-data.js';
+import { startDynDnsUpdater } from './utils/dyn-dns.js';
+import { createSessionAuth } from './utils/session-auth.js';
 
 // --- Workaround for __dirname in ES Modules ---
 const __filename = fileURLToPath(import.meta.url);
@@ -36,23 +37,19 @@ app.use(cors());
 // 2. Enable JSON body parsing. This MUST come before any routes that use req.body.
 app.use(express.json());
 
-// --- Authentication Middleware (Updated) ---
-const auth = (req, res, next) => {
-    // 3. Add this check to allow OPTIONS requests to pass through without authentication.
-    // This is crucial for the browser's CORS preflight check to succeed.
-    if (req.method === 'OPTIONS') {
-        return next();
-    }
+app.use(express.urlencoded({ extended: false }));
 
-      const user = basicAuth(req);
+const sessionAuth = createSessionAuth({ username: APP_USER, password: APP_PASSWORD });
+app.use(sessionAuth.attachSession);
+app.use('/login', sessionAuth.loginRouter);
+app.use('/logout', sessionAuth.logoutRouter);
 
-      if (!user || user.name !== APP_USER || user.pass !== APP_PASSWORD) {
-            res.setHeader('WWW-Authenticate', 'Basic realm="Enter credentials"');
-            return res.status(401).send('Authentication required.');
+app.use((req, res, next) => {
+      if (req.method === 'OPTIONS') {
+            return next();
       }
-      return next();
-};
-
+      return sessionAuth.requireAuth(req, res, next);
+});
 
 // --- Database Connection and Setup ---
 const sqlite3 = sqlite3Base.verbose();
@@ -149,9 +146,9 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 // --- Middleware & API Routes ---
-app.use(auth); // Apply auth middleware to all subsequent routes
 app.use(express.static(path.join(__dirname, 'public')));
 initializeCardNameCache();
+startDynDnsUpdater();
 app.use('/api', apiRoutes(db));
 
 // --- Page-Serving Routes ---

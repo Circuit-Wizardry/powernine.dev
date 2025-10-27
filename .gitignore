@@ -140,3 +140,4 @@ data/
 /data/AllPrintings.sqlite
 /data/AllPrices.json
 /data/AllPrices.json.tar.gz
+data/AllPricesToday.json
