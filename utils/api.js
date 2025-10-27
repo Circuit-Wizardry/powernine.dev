@@ -1,11 +1,13 @@
 import express from 'express';
 import { Readable } from 'stream';
 import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import csv from 'csv-parser';
 import { getCardNames } from './card-data.js';
 import axios from 'axios';
 import { randomUUID } from 'crypto';
-import { log } from '../discord.js'
+import { log } from '../discord.js';
 import { chromium } from 'playwright'; // Import Playwright
 // Import your scraper functions (ensure paths are correct)
 import { scrapeTcgplayerData } from '../scrapers/tcgplayer.js';
@@ -45,7 +47,7 @@ const mapInternalConditionToManabox = (internalCondition) => {
 
 
 // --- Multer Configuration for PDF Uploads ---
-const storage = multer.diskStorage({
+const pdfStorage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, './private/uploads/');
     },
@@ -55,8 +57,8 @@ const storage = multer.diskStorage({
         cb(null, uniqueSuffix + path.extname(file.originalname));
     }
 });
-const upload = multer({
-    storage: storage,
+const pdfUpload = multer({
+    storage: pdfStorage,
     fileFilter: (req, file, cb) => {
         // --- ADDED LOGGING ---
         // This will print the exact file details the server sees.
@@ -80,8 +82,7 @@ const upload = multer({
 export default function(db) {
     const router = express.Router();
 
-    const storage = multer.memoryStorage();
-    const upload = multer({ storage });
+    const csvUpload = multer({ storage: multer.memoryStorage() });
 
 
     router.post('/scrape-buylists', express.json(), async (req, res) => {
@@ -435,7 +436,7 @@ export default function(db) {
      * NEW: Endpoint for uploading a packing slip after a transaction is created.
      */
     // router.post('/transactions/:id/packing-slip', (req, res) => {
-    //     const singleUpload = upload.single('packingSlip');
+    //     const singleUpload = pdfUpload.single('packingSlip');
 
     //     singleUpload(req, res, function(err) {
     //         // --- This block catches all upload-related errors ---
@@ -469,7 +470,7 @@ export default function(db) {
 
 
     // --- Endpoint to create a new, temporary list from a CSV ---
-    router.post('/import-csv', upload.single('cardList'), (req, res) => {
+    router.post('/import-csv', csvUpload.single('cardList'), (req, res) => {
         if (!req.file) return res.status(400).json({ message: 'No file uploaded.' });
 
         const results = [];
@@ -634,6 +635,56 @@ export default function(db) {
 
     // --- Other utility routes ---
     router.get('/card-names', (req, res) => res.json(getCardNames()));
+
+    router.get('/cards/search', async (req, res) => {
+        const query = (req.query.q || '').trim();
+        const limitParam = parseInt(req.query.limit, 10);
+        const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 15) : 8;
+
+        if (query.length < 2) {
+            return res.json([]);
+        }
+
+        try {
+            const response = await axios.get('https://api.scryfall.com/cards/search', {
+                params: {
+                    q: query,
+                    unique: 'cards',
+                    order: 'released',
+                    include_extras: false,
+                    include_variations: false,
+                }
+            });
+
+            const cards = Array.isArray(response.data?.data) ? response.data.data.slice(0, limit) : [];
+
+            const suggestions = cards.map(card => {
+                const primaryFace = Array.isArray(card.card_faces) && card.card_faces.length > 0
+                    ? card.card_faces[0]
+                    : null;
+                const imageSmall = card.image_uris?.small || primaryFace?.image_uris?.small || null;
+
+                return {
+                    id: card.id,
+                    name: card.name,
+                    set: card.set,
+                    set_name: card.set_name,
+                    collector_number: card.collector_number,
+                    image_small: imageSmall,
+                    finishes: card.finishes || [],
+                    tcgplayer_id: card.tcgplayer_id || null,
+                };
+            });
+
+            res.json(suggestions);
+        } catch (error) {
+            if (error.response?.status === 404) {
+                return res.json([]);
+            }
+            console.error('Card search failed:', error.message);
+            res.status(502).json({ error: 'Failed to search cards.' });
+        }
+    });
     router.get('/printings/:cardName', async (req, res) => {
         try {
             const cardName = req.params.cardName;

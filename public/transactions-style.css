@@ -188,6 +188,90 @@ body {
     font-size: 1em;
 }
 
+.card-selector-area {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+
+.card-selector-area label {
+    font-size: 0.95em;
+    font-weight: 600;
+    color: #bbb;
+}
+
+.card-selector-area .search-input {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 1em;
+}
+
+.card-selector-area .helper-text {
+    font-size: 0.8em;
+    color: #888;
+}
+
+.staged-items-empty {
+    margin: 12px 0;
+    color: #888;
+    font-size: 0.9em;
+}
+
+.staged-item {
+    background-color: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+}
+
+.staged-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.staged-item-name {
+    font-weight: 600;
+}
+
+.staged-item-meta {
+    color: #888;
+    font-size: 0.8em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.staged-item-inputs {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+}
+
+.staged-item-inputs label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.8em;
+    color: #bbb;
+}
+
+.staged-item-inputs input {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 8px;
+    min-width: 80px;
+}
+
 .profit-preview {
     background-color: #222;
     padding: 12px;

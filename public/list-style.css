@@ -400,62 +400,6 @@ h1 { margin: 0; }
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
 }
 
-/* --- NEW STYLES FOR ADD CARD SEARCH --- */
-
-/* Styles for the Awesomplete (card name) dropdown.
-  This fixes the "overlapping" issue by giving it a z-index
-  and matching it to the dark theme.
-*/
-div.awesomplete {
-  display: block; /* Ensure it takes up the full width */
-  position: relative; /* Context for its dropdown */
-}
-
-div.awesomplete > ul {
-  position: absolute;
-  left: 0;
-  right: 0;
-  z-index: 11; /* Make sure it's on top of other content */
-  margin-top: 4px; /* A little space from the search bar */
-  background: #333;
-  border: 1px solid var(--border-color);
-  border-radius: 0 0 8px 8px; /* Match the search results box */
-  box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-div.awesomplete > ul > li {
-  padding: 10px 14px;
-  color: var(--text-color);
-  border-bottom: 1px solid var(--border-color);
-  cursor: pointer;
-  transition: background-color 0.15s ease;
-  font-size: 0.95em;
-}
-
-div.awesomplete > ul > li:last-child {
-  border-bottom: none;
-}
-
-div.awesomplete > ul > li:hover {
-  background-color: #444;
-}
-
-/* This highlights the currently selected item */
-div.awesomplete > ul > li[aria-selected="true"] {
-  background-color: var(--primary-color);
-  color: var(--bg-color);
-  font-weight: 600;
-}
-
-/* Style the text matching from Awesomplete */
-div.awesomplete mark {
-  background: none;
-  font-weight: bold;
-  color: var(--primary-color);
-}
-
 /*
   Improvements for the Printing Results (#add-card-results)
   This makes the results list cleaner and fixes the circular image.

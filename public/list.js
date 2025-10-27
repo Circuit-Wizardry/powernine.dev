@@ -29,36 +29,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const listId = pathParts[pathParts.length - 1];
 
     // --- HELPER FUNCTIONS ---
-    const generateUUID = () => {
-        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-            const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-            return v.toString(16);
-        });
-    };
-
-    /**
-     * Normalizes a string for fuzzy searching.
-     * @param {string} str - The string to normalize.
-     * @returns {string} The normalized string.
-     */
-    const normalizeString = (str) => {
-        return str
-            .toLowerCase() // Convert to lowercase
-            .replace(/[^\w\s]|_/g, "") // Remove all non-word characters except whitespace
-            .replace(/\s+/g, " "); // Collapse multiple whitespaces into a single space
-    };
-
-    /**
-     * Awesomplete filter function for matching card names.
-     * @param {object|string} text - The suggestion object or text.
-     * @param {string} input - The user's input.
-     * @returns {boolean} True if the text includes the input, false otherwise.
-     */
-    const cardFilter = function(text, input) {
-        let normalizedText = normalizeString(text.label || text);
-        let normalizedInput = normalizeString(input);
-        return normalizedText.includes(normalizedInput);
-    };
+    if (!window.cardUtils) {
+        console.error('cardUtils utilities are not available.');
+        return;
+    }
+    const { generateId, CardSearchWidget } = window.cardUtils;
 
     const calculateBreakevenPrice = (buyPrice, feeRate, flatFee) => {
         if (buyPrice <= 0) return 0;
@@ -70,10 +45,36 @@ document.addEventListener('DOMContentLoaded', () => {
         const latestDate = Object.keys(priceHistory).sort((a, b) => new Date(b) - new Date(a))[0];
         return priceHistory[latestDate] || 0;
     };
-    const createFoilIndicator = (foilType) => {
-        if (foilType === 'foil') return '<span class="foil-indicator">✨ Foil</span>';
-        if (foilType === 'etched') return '<span class="foil-indicator">💎 Etched</span>';
-        return '';
+
+    const formatCurrency = (value) => {
+        if (typeof value === 'number' && Number.isFinite(value)) {
+            return `$${value.toFixed(2)}`;
+        }
+        return 'N/A';
+    };
+
+    const formatFinishLabel = (finish) => {
+        switch (finish) {
+            case 'nonfoil':
+                return 'Non-Foil';
+            case 'foil':
+                return 'Foil';
+            case 'etched':
+                return 'Etched';
+            default:
+                return finish;
+        }
+    };
+
+    const createFoilIndicatorElement = (foilType) => {
+        if (foilType !== 'foil' && foilType !== 'etched') {
+            return null;
+        }
+        const span = document.createElement('span');
+        span.className = 'foil-indicator';
+        span.setAttribute('aria-label', foilType === 'foil' ? 'Foil printing' : 'Etched printing');
+        span.textContent = foilType === 'foil' ? 'Foil' : 'Etched';
+        return span;
     };
     const updateSaveStateUI = () => {
       if (isListSaved) {
@@ -87,8 +88,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /**
      * Fetches and renders printings for a selected card name.
-     * This function is triggered by Awesomplete.
-     * @param {string} cardName - The exact card name selected from autocomplete.
+     * Fetches and renders printings for the selected card name.
+     * @param {string} cardName - The exact card name selected from the search widget.
      */
     const searchForPrintingsByCardName = async (cardName) => {
         if (!cardName) {
@@ -132,35 +133,44 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const resultItem = document.createElement('div');
                 resultItem.className = 'printing-result-item';
-                
-                // --- NEW: Use the combined Set of finishes to create buttons ---
-                let finishesHTML = Array.from(printing.available_finishes).map(f => 
-                    `<button class="finish-btn" data-finish="${f}">${f}</button>`
-                ).join('');
 
-                // --- NEW: Updated HTML with collector # and hover data ---
-                resultItem.innerHTML = `
-                    <img src="${printing.image_uris.art_crop}" 
-                           loading="lazy" 
-                           alt="${printing.name} art crop" 
-                           class="printing-result-image" 
-                           data-full-art="${printing.image_uris.normal}"
-                    >
-                    <div class="printing-result-info">
-                        <strong>${printing.name}</strong>
-                        <span>(${printing.set_name})</span>
-                        <span class="collector-number">#${printing.collector_number}</span>
-                    </div>
-                    <div class="finishes">${finishesHTML}</div>
-                `;
-                addCardResults.appendChild(resultItem);
+                const image = document.createElement('img');
+                image.loading = 'lazy';
+                image.className = 'printing-result-image';
+                image.alt = `${printing.name} art crop`;
+                image.src = printing.image_uris.art_crop;
+                image.dataset.fullArt = printing.image_uris.normal || '';
+                resultItem.appendChild(image);
 
-                // Add event listeners to the new finish buttons (same as original)
-                resultItem.querySelectorAll('.finish-btn').forEach(button => {
+                const info = document.createElement('div');
+                info.className = 'printing-result-info';
+
+                const nameEl = document.createElement('strong');
+                nameEl.textContent = printing.name;
+                info.appendChild(nameEl);
+
+                const setSpan = document.createElement('span');
+                setSpan.textContent = `(${printing.set_name})`;
+                info.appendChild(setSpan);
+
+                const collectorSpan = document.createElement('span');
+                collectorSpan.className = 'collector-number';
+                collectorSpan.textContent = `#${printing.collector_number}`;
+                info.appendChild(collectorSpan);
+
+                resultItem.appendChild(info);
+
+                const finishesContainer = document.createElement('div');
+                finishesContainer.className = 'finishes';
+
+                printing.available_finishes.forEach(finish => {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'finish-btn';
+                    button.dataset.finish = finish;
+                    button.textContent = formatFinishLabel(finish);
                     button.addEventListener('click', () => {
-                        const selectedFinish = button.dataset.finish;
-                        const foilTypeForDB = selectedFinish === 'nonfoil' ? 'normal' : selectedFinish;
-
+                        const foilTypeForDB = finish === 'nonfoil' ? 'normal' : finish;
                         const cardToAdd = {
                             name: printing.name,
                             setCode: printing.set.toUpperCase(),
@@ -168,10 +178,13 @@ document.addEventListener('DOMContentLoaded', () => {
                             foilType: foilTypeForDB,
                             quantity: 1
                         };
-                        // This function already handles clearing the search bar/results
                         addCardToList(cardToAdd);
                     });
+                    finishesContainer.appendChild(button);
                 });
+
+                resultItem.appendChild(finishesContainer);
+                addCardResults.appendChild(resultItem);
             });
 
             // Check if any results were actually added to the DOM
@@ -225,7 +238,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const newCard = {
                 ...cardData,
-                id: generateUUID(),
+                id: generateId(),
                 isLoaded: false,
                 price: 0, ckPrice: 0, chPrice: 0
             };
@@ -250,9 +263,11 @@ document.addEventListener('DOMContentLoaded', () => {
      * Renders the entire list of cards to the DOM.
      */
     const renderCardList = (cardsToRender) => {
-        container.innerHTML = '';
+        container.textContent = '';
         if (cardsToRender.length === 0 && allCards.length > 0) {
-            container.innerHTML = '<p>No cards match your search.</p>';
+            const message = document.createElement('p');
+            message.textContent = 'No cards match your search.';
+            container.appendChild(message);
             return;
         }
         for (const card of cardsToRender) {
@@ -269,37 +284,104 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="card-graph-skeleton"></div>
                 `;
             } else {
-                cardElement.innerHTML = getCardHTML(card);
+                populateCardElement(cardElement, card);
             }
             container.appendChild(cardElement);
         }
     };
-    
-    const getCardHTML = (card) => {
-        return `
-            <img src="${card.imageUrl}" alt="${card.name}" class="card-image">
-                <div class="card-info">
-                    <h3>${card.name} (x${card.quantity}) ${createFoilIndicator(card.foilType)}</h3>
-                    <p>${card.setName} (#${card.collectorNumber})</p>
-                    <button class="scrape-btn" data-card-id="${card.id}" ${card.tcgplayerId ? '' : 'disabled'}>
-                        Check Live Lows
-                    </button>
-                </div>
-                    <table class="vendor-prices">
-                        <tbody>
-                            <tr><td><a target="_blank" rel="noopener noreferrer" href=${card.purchase_uris}>TCG Market</a></td><td>$${card.price.toFixed(2)}</td></tr>
-                            <tr><td>Card Kingdom</td><td>$${card.ckPrice.toFixed(2)}</td></tr>
-                            <tr><td>TCG Low</td><td id="tcg-low-${card.id}">-</td></tr>
-                            <tr><td>ManaPool Low</td><td id="mp-low-${card.id}">-</td></tr>
-                        </tbody>
-                    </table>
-                <div class="card-analysis" id="analysis-${card.id}">
-                    ${getBreakevenTableHTML(card.price, card.tcgLow)}
-                </div>
-                <div class="card-graph-container">
-                    <canvas id="chart-${card.id}"></canvas>
-            </div>
-        `;
+
+    const populateCardElement = (cardElement, card) => {
+        cardElement.classList.remove('skeleton');
+        cardElement.innerHTML = '';
+
+        const image = document.createElement('img');
+        image.className = 'card-image';
+        image.src = card.imageUrl;
+        image.alt = card.name;
+        cardElement.appendChild(image);
+
+        const info = document.createElement('div');
+        info.className = 'card-info';
+
+        const title = document.createElement('h3');
+        title.appendChild(document.createTextNode(`${card.name} (x${card.quantity}) `));
+        const foilIndicatorElement = createFoilIndicatorElement(card.foilType);
+        if (foilIndicatorElement) {
+            title.appendChild(foilIndicatorElement);
+        }
+        info.appendChild(title);
+
+        const setDetails = document.createElement('p');
+        setDetails.textContent = `${card.setName} (#${card.collectorNumber})`;
+        info.appendChild(setDetails);
+
+        const scrapeButton = document.createElement('button');
+        scrapeButton.className = 'scrape-btn';
+        scrapeButton.dataset.cardId = card.id;
+        scrapeButton.textContent = 'Check Live Lows';
+        if (!card.tcgplayerId) {
+            scrapeButton.disabled = true;
+        }
+        info.appendChild(scrapeButton);
+
+        cardElement.appendChild(info);
+
+        const priceTable = document.createElement('table');
+        priceTable.className = 'vendor-prices';
+        const priceTbody = document.createElement('tbody');
+        priceTable.appendChild(priceTbody);
+
+        const appendPriceRow = (label, value, options = {}) => {
+            const row = document.createElement('tr');
+            const labelCell = document.createElement('td');
+            const valueCell = document.createElement('td');
+
+            if (options.href) {
+                const link = document.createElement('a');
+                link.href = options.href || '#';
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.textContent = label;
+                labelCell.appendChild(link);
+            } else {
+                labelCell.textContent = label;
+            }
+
+            if (typeof value === 'number' && Number.isFinite(value)) {
+                valueCell.textContent = formatCurrency(value);
+            } else if (typeof value === 'string') {
+                valueCell.textContent = value;
+            } else {
+                valueCell.textContent = 'N/A';
+            }
+            if (options.id) {
+                valueCell.id = options.id;
+            }
+
+            row.appendChild(labelCell);
+            row.appendChild(valueCell);
+            priceTbody.appendChild(row);
+        };
+
+        appendPriceRow('TCG Market', card.price, { href: card.purchase_uris });
+        appendPriceRow('Card Kingdom', card.ckPrice);
+        appendPriceRow('TCG Low', '-', { id: `tcg-low-${card.id}` });
+        appendPriceRow('ManaPool Low', '-', { id: `mp-low-${card.id}` });
+
+        cardElement.appendChild(priceTable);
+
+        const analysis = document.createElement('div');
+        analysis.className = 'card-analysis';
+        analysis.id = `analysis-${card.id}`;
+        analysis.innerHTML = getBreakevenTableHTML(card.price, card.tcgLow);
+        cardElement.appendChild(analysis);
+
+        const chartContainer = document.createElement('div');
+        chartContainer.className = 'card-graph-container';
+        const canvas = document.createElement('canvas');
+        canvas.id = `chart-${card.id}`;
+        chartContainer.appendChild(canvas);
+        cardElement.appendChild(chartContainer);
     };
 
     
@@ -331,10 +413,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 return lastKnownPrice;
             });
             return {
-                label: vendor.name, data: pricePoints, borderColor: vendor.color,
-                fill: false, tension: 0.4, pointRadius: 0, spanGaps: true
+                label: vendor.name,
+                data: pricePoints,
+                borderColor: vendor.color,
+                fill: false,
+                tension: 0.4,
+                pointRadius: 0,
+                spanGaps: true
             };
-  .0     });
+        });
 
         new Chart(canvas.getContext('2d'), {
             type: 'line',
@@ -386,8 +473,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const existingElement = document.getElementById(`card-${card.id}`);
             if (existingElement) {
-                existingElement.classList.remove('skeleton');
-                existingElement.innerHTML = getCardHTML(card);
+                populateCardElement(existingElement, card);
                 renderChart(card);
             }
         } catch (error) {
@@ -506,25 +592,23 @@ document.addEventListener('DOMContentLoaded', () => {
             fetchAllCardDetails();
 
         } catch (error) {
-            container.innerHTML = `<p style="color: #ff8a80;">${error.message}</p>`;
+            container.textContent = '';
+            const errorMessage = document.createElement('p');
+            errorMessage.style.color = '#ff8a80';
+            errorMessage.textContent = error.message;
+            container.appendChild(errorMessage);
         }
     };
 
     // --- EVENT LISTENERS ---
 
-    // --- NEW: Awesomplete for Add Card Search ---
-    // Fetch the list of all card names for the autocomplete
-    fetch('/api/card-names')
-        .then(res => res.json())
-        .then(data => {
-            // Attach Awesomplete to the 'add-card-search' input
-            new Awesomplete(addCardSearch, { list: data, filter: cardFilter });
-        });
-
-    // Listen for the user to select a card from the autocomplete list
-    addCardSearch.addEventListener('awesomplete-selectcomplete', (event) => {
-        // When a card is selected, fetch its printings
-        searchForPrintingsByCardName(event.text.value);
+    new CardSearchWidget({
+        input: addCardSearch,
+        limit: 10,
+        onSelect: (card) => {
+            addCardSearch.value = card.name;
+            searchForPrintingsByCardName(card.name);
+        },
     });
 
     // --- NEW: Hover Preview for Add Card Search Results ---
@@ -627,7 +711,7 @@ document.addEventListener('DOMContentLoaded', () => {
             sortButtons.forEach(btn => btn.classList.remove('active'));
             button.classList.add('active');
             sortAndRender();
-      _   });
+        });
     });
 
     // Use event delegation on the main container for efficiency
@@ -658,3 +742,4 @@ document.addEventListener('DOMContentLoaded', () => {
 
     initializePage();
 });
+

@@ -1,4 +1,8 @@
 document.addEventListener('DOMContentLoaded', () => {
+    if (!window.cardUtils) {
+        console.error('cardUtils utilities are not available.');
+        return;
+    }
     // --- State & DOM Elements ---
     let transactions = [];
     let inventory = [];
@@ -13,6 +17,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const modalContentBody = document.getElementById('modal-content-body');
     const addTransactionBtn = document.getElementById('add-transaction-btn');
     const closeModalBtn = modal.querySelector('.close-button');
+
+    let inventorySearchWidget = null;
 
     // --- Frontend rate-limiting queue for Scryfall detail fetches ---
     const RATE_LIMIT_MS = 25;
@@ -42,6 +48,19 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!isDetailRequestProcessing) {
             processDetailQueue();
         }
+    };
+
+    const disposeInventorySearchWidget = () => {
+        if (inventorySearchWidget) {
+            inventorySearchWidget.destroy();
+            inventorySearchWidget = null;
+        }
+    };
+
+    const closeModal = () => {
+        disposeInventorySearchWidget();
+        modal.style.display = 'none';
+        modalContentBody.innerHTML = '';
     };
 
     // --- Helper Functions ---
@@ -88,68 +107,168 @@ document.addEventListener('DOMContentLoaded', () => {
             alert("You have no items in your inventory with a quantity greater than zero.");
             return;
         }
-        stagedItems = []; // Reset staged items for a new transaction
+        stagedItems = [];
+        disposeInventorySearchWidget();
         modalContentBody.innerHTML = `
             <h2>Log a New Transaction</h2>
             <form id="add-transaction-form">
                 <div class="card-selector-area">
-                    <select id="inventory-select">
-                        <option value="">-- Select a Card to Add to Sale --</option>
-                        ${availableInventory.map(item => `<option value="${item.id}">${item.name} - ${item.condition} (${item.setCode}) Qty: ${item.quantity}</option>`).join('')}
-                    </select>
-                    <button type="button" id="add-item-to-sale-btn">Add to Sale</button>
+                    <label for="inventory-search">Search Inventory</label>
+                    <input type="text" id="inventory-search" class="search-input" placeholder="Start typing to find cards in your inventory..." autocomplete="off">
+                    <small class="helper-text">Selecting a result adds it to the sale. Only items with quantity remaining appear in the list.</small>
                 </div>
-                <div id="staged-items-container"></div>
+                <div id="staged-items-container" class="staged-items"></div>
                 <hr>
                 <div class="form-grid">
-                    <div class="form-group"><label for="shippingCost">Shipping Cost ($):</label><input type="number" name="shippingCost" id="shippingCost" step="0.01" value="0.00" required></div>
-                    <div class="form-group"><label for="platform">Platform:</label><select name="platform" id="platform" required><option value="TCGPlayer">TCGPlayer</option><option value="ManaPool">ManaPool</option><option value="independent">Independent</option></select></div>
+                    <div class="form-group">
+                        <label for="shippingCost">Shipping Cost ($):</label>
+                        <input type="number" name="shippingCost" id="shippingCost" step="0.01" value="0.00" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="platform">Platform:</label>
+                        <select name="platform" id="platform" required>
+                            <option value="TCGPlayer">TCGPlayer</option>
+                            <option value="ManaPool">ManaPool</option>
+                            <option value="independent">Independent</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="profit-preview" id="profit-preview"></div>
                 <button type="submit" class="action-btn">Save Transaction</button>
             </form>
         `;
         modal.style.display = 'flex';
-        document.getElementById('add-item-to-sale-btn').addEventListener('click', stageItemForSale);
-        document.getElementById('add-transaction-form').addEventListener('submit', handleFormSubmit);
-        document.getElementById('add-transaction-form').addEventListener('input', updateProfitPreview);
+
+        const searchInput = document.getElementById('inventory-search');
+        const form = document.getElementById('add-transaction-form');
+
+        inventorySearchWidget = new window.cardUtils.CardSearchWidget({
+            input: searchInput,
+            minLength: 1,
+            limit: 12,
+            debounceMs: 150,
+            fetchCards: async (query, options = {}) => {
+                const normalizedQuery = query.trim().toLowerCase();
+                if (!normalizedQuery) {
+                    return [];
+                }
+                const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
+                const results = availableInventory
+                    .filter(item => tokens.every(token => item._searchString?.includes(token)))
+                    .slice(0, options.limit ?? 12)
+                    .map(item => ({
+                        id: item.id,
+                        name: item.name,
+                        set_name: `${item.setCode?.toUpperCase() || ''} • ${item.condition}`.trim(),
+                        collector_number: `Qty: ${item.quantity}`,
+                        image_small: item.imageUrl || null,
+                    }));
+                return results;
+            },
+            onSelect: (card) => {
+                const selectedItem = availableInventory.find(inv => inv.id === card.id);
+                if (selectedItem) {
+                    stageInventoryItem(selectedItem);
+                }
+                searchInput.value = '';
+                searchInput.focus();
+            }
+        });
+
+        form.addEventListener('submit', handleFormSubmit);
+        form.addEventListener('input', updateProfitPreview);
+        renderStagedItems();
+        updateProfitPreview();
+        searchInput.focus();
     };
 
-    const stageItemForSale = () => {
-        const select = document.getElementById('inventory-select');
-        const inventoryId = select.value;
-        if (!inventoryId) return;
-        const itemInStage = stagedItems.find(i => i.inventoryId === inventoryId);
-        if (itemInStage) { alert("This card is already in the sale."); return; }
-        const item = inventory.find(i => i.id === inventoryId);
+    const stageInventoryItem = (item) => {
+        if (!item) return;
+        if (item.quantity <= 0) {
+            alert('This card has no remaining quantity in inventory.');
+            return;
+        }
+        const existing = stagedItems.find(i => i.inventoryId === item.id);
+        if (existing) {
+            if (existing.quantity >= existing.maxQuantity) {
+                alert('You have already staged the maximum available quantity for this card.');
+                return;
+            }
+            existing.quantity = Math.min(existing.quantity + 1, existing.maxQuantity);
+            renderStagedItems();
+            updateProfitPreview();
+            return;
+        }
         stagedItems.push({
             inventoryId: item.id,
             name: item.name,
+            condition: item.condition,
+            foilType: item.foilType,
             pricePaid: item.pricePaid,
-            salePrice: item.tcgMarketPrice || 0,
-            quantity: 1, // Default quantity is always 1
-            maxQuantity: item.quantity // Store max available quantity for validation
+            salePrice: Number.isFinite(item.tcgMarketPrice) && item.tcgMarketPrice > 0 ? item.tcgMarketPrice : item.pricePaid,
+            quantity: 1,
+            maxQuantity: item.quantity
         });
-        select.value = '';
         renderStagedItems();
         updateProfitPreview();
     };
 
     const renderStagedItems = () => {
         const container = document.getElementById('staged-items-container');
+        if (!container) return;
+
+        if (stagedItems.length === 0) {
+            container.innerHTML = '<p class="staged-items-empty">Search for a card above and select it to add it to this sale.</p>';
+            return;
+        }
+
         container.innerHTML = stagedItems.map((item, index) => `
             <div class="staged-item">
-                <span>${item.name} (Max: ${item.maxQuantity})</span>
+                <div class="staged-item-header">
+                    <span class="staged-item-name">${item.name}</span>
+                    <small class="staged-item-meta">${item.condition}${item.foilType && item.foilType !== 'normal' ? ` • ${item.foilType}` : ''} • Max ${item.maxQuantity}</small>
+                </div>
                 <div class="staged-item-inputs">
-                    <input type="number" class="staged-quantity-input" data-index="${index}" value="${item.quantity}" min="1" max="${item.maxQuantity}" title="Quantity">
+                    <label>
+                        Qty
+                        <input type="number" class="staged-quantity-input" data-index="${index}" value="${item.quantity}" min="1" max="${item.maxQuantity}" title="Quantity available">
+                    </label>
                     <span>x</span>
-                    <input type="number" class="staged-price-input" data-index="${index}" step="0.01" value="${item.salePrice.toFixed(2)}" title="Price per item">
+                    <label>
+                        Sale Price
+                        <input type="number" class="staged-price-input" data-index="${index}" step="0.01" value="${item.salePrice.toFixed(2)}" title="Price per item">
+                    </label>
                 </div>
             </div>
         `).join('');
+
+        container.querySelectorAll('.staged-quantity-input').forEach(input => {
+            input.addEventListener('input', (event) => {
+                const idx = parseInt(event.target.dataset.index, 10);
+                if (!Number.isInteger(idx) || !stagedItems[idx]) return;
+                const max = stagedItems[idx].maxQuantity;
+                let nextValue = parseInt(event.target.value, 10);
+                if (!Number.isFinite(nextValue) || nextValue < 1) nextValue = 1;
+                if (nextValue > max) nextValue = max;
+                event.target.value = nextValue;
+                stagedItems[idx].quantity = nextValue;
+                updateProfitPreview();
+            });
+        });
+
+        container.querySelectorAll('.staged-price-input').forEach(input => {
+            input.addEventListener('input', (event) => {
+                const idx = parseInt(event.target.dataset.index, 10);
+                if (!Number.isInteger(idx) || !stagedItems[idx]) return;
+                const value = parseFloat(event.target.value);
+                stagedItems[idx].salePrice = Number.isFinite(value) ? value : 0;
+                updateProfitPreview();
+            });
+        });
     };
 
     const openViewModal = (transaction) => {
+        disposeInventorySearchWidget();
         const totalPurchasePrice = transaction.items.reduce((acc, item) => acc + item.pricePaid, 0);
         const fees = calculateFees(transaction.totalSalePrice, transaction.shippingCost, transaction.platform);
         modalContentBody.innerHTML = `
@@ -186,6 +305,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const form = document.getElementById('add-transaction-form');
         const previewEl = document.getElementById('profit-preview');
         if (!form) return;
+        document.querySelectorAll('.staged-quantity-input').forEach(input => {
+            const index = parseInt(input.dataset.index, 10);
+            if (stagedItems[index]) {
+                let nextValue = parseInt(input.value, 10);
+                if (!Number.isFinite(nextValue) || nextValue < 1) nextValue = 1;
+                if (nextValue > stagedItems[index].maxQuantity) nextValue = stagedItems[index].maxQuantity;
+                input.value = nextValue;
+                stagedItems[index].quantity = nextValue;
+            }
+        });
         document.querySelectorAll('.staged-price-input').forEach(input => {
             const index = parseInt(input.dataset.index, 10);
             if (stagedItems[index]) {
@@ -220,6 +349,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const handleFormSubmit = async (event) => {
         event.preventDefault();
         const form = event.target;
+        document.querySelectorAll('.staged-quantity-input').forEach(input => {
+            const index = parseInt(input.dataset.index, 10);
+            if (stagedItems[index]) {
+                let nextValue = parseInt(input.value, 10);
+                if (!Number.isFinite(nextValue) || nextValue < 1) nextValue = 1;
+                if (nextValue > stagedItems[index].maxQuantity) nextValue = stagedItems[index].maxQuantity;
+                stagedItems[index].quantity = nextValue;
+            }
+        });
         document.querySelectorAll('.staged-price-input').forEach(input => {
             const index = parseInt(input.dataset.index, 10);
             if (stagedItems[index]) {
@@ -297,7 +435,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 fetch('/api/inventory')
             ]);
             transactions = await transRes.json();
-            inventory = await invRes.json();
+            inventory = (await invRes.json()).map(item => ({
+                ...item,
+                _searchString: [
+                    item.name,
+                    item.setCode,
+                    item.collectorNumber,
+                    item.condition,
+                    item.foilType,
+                ].filter(Boolean).join(' ').toLowerCase(),
+            }));
             renderTransactionList();
             if (inventory.length > 0) {
                 inventory.forEach(item => {
@@ -322,10 +469,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Event Listeners ---
     addTransactionBtn.addEventListener('click', openAddModal);
-    closeModalBtn.addEventListener('click', () => modal.style.display = 'none');
-    window.addEventListener('click', (event) => {
-        if (event.target === modal) modal.style.display = 'none';
-    });
+    closeModalBtn.addEventListener('click', closeModal);
     transactionListContainer.addEventListener('click', (event) => {
         const itemEl = event.target.closest('.transaction-item');
         if (itemEl) {
@@ -337,3 +481,4 @@ document.addEventListener('DOMContentLoaded', () => {
 
     initializePage();
 });
+

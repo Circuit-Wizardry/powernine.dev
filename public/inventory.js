@@ -1,4 +1,10 @@
 document.addEventListener('DOMContentLoaded', () => {
+    if (!window.cardUtils) {
+        console.error('cardUtils utilities are not available.');
+        return;
+    }
+    const { CardSearchWidget } = window.cardUtils;
+
     // --- Constants & Config ---
     const TCGPLAYER_FEE_RATE = 0.1275;
     const MANAPOOL_FEE_RATE = 0.079;
@@ -276,7 +282,7 @@ const addCardToInventory = async (cardData) => {
     };
 
     const searchForPrintings = async (cardName) => {
-        if (!cardName || cardName.length < 3) {
+        if (!cardName) {
             addCardResults.innerHTML = ''; return;
         }
         addCardResults.innerHTML = '<div class="loader">Searching...</div>';
@@ -457,10 +463,13 @@ const addCardToInventory = async (cardData) => {
     };
     
     // --- Event Listeners ---
-    let debounceTimer;
-    addCardSearch.addEventListener('input', () => {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => searchForPrintings(addCardSearch.value), 300);
+    new CardSearchWidget({
+        input: addCardSearch,
+        limit: 10,
+        onSelect: (card) => {
+            addCardSearch.value = card.name;
+            searchForPrintings(card.name);
+        },
     });
 
     exportBtn.addEventListener('click', () => {

@@ -19,6 +19,17 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const APP_USER = process.env.APP_USER;
+const APP_PASSWORD = process.env.APP_PASSWORD;
+
+if (!APP_USER || !APP_PASSWORD) {
+      throw new Error('APP_USER and APP_PASSWORD environment variables must be set.');
+}
+
+if (APP_USER === 'admin' && APP_PASSWORD === 'password') {
+      throw new Error('Default credentials detected. Update APP_USER and APP_PASSWORD before starting the server.');
+}
+
 // --- CORE MIDDLEWARE ---
 // 1. Enable CORS for all requests. This handles the OPTIONS preflight.
 app.use(cors()); 
@@ -34,10 +45,8 @@ const auth = (req, res, next) => {
     }
 
       const user = basicAuth(req);
-      const appUser = process.env.APP_USER || 'admin';
-      const appPassword = process.env.APP_PASSWORD || 'password';
 
-      if (!user || user.name !== appUser || user.pass !== appPassword) {
+      if (!user || user.name !== APP_USER || user.pass !== APP_PASSWORD) {
             res.setHeader('WWW-Authenticate', 'Basic realm="Enter credentials"');
             return res.status(401).send('Authentication required.');
       }
