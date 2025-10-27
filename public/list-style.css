@@ -424,9 +424,9 @@ h1 { margin: 0; }
 /* Override existing rule for better spacing and hover effect */
 .printing-result-item {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border-color);
   cursor: default;
   transition: background-color 0.15s ease;
@@ -445,12 +445,13 @@ h1 { margin: 0; }
   Also making it slightly larger.
 */
 .printing-result-item img {
-  width: 60px;  /* Larger width */
-  height: 45px; /* Corresponding 4:3 height for art crop */
-  border-radius: 4px; /* Rounded rectangle */
+  width: 86px;
+  aspect-ratio: 63 / 88;
+  border-radius: 6px;
   object-fit: cover;
   flex-shrink: 0;
-  background-color: #111; /* Dark background for loading */
+  background-color: #111;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
 }
 
 /* Container for the text info */
@@ -481,10 +482,12 @@ h1 { margin: 0; }
 }
 
 .printing-result-item .finishes {
-  margin-left: auto; 
+  margin-left: auto;
   display: flex;
   gap: 8px;
-  flex-shrink: 0; /* Don't let the buttons wrap */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex-shrink: 0;
 }
 
 /* Override for a cleaner pill-style button */
@@ -513,4 +516,90 @@ h1 { margin: 0; }
     overflow: hidden;
     clip: rect(1px, 1px, 1px, 1px); 
     white-space: nowrap; 
+}
+
+@media (max-width: 768px) {
+    body {
+        padding: 12px;
+    }
+
+    .header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .header-controls {
+        flex-wrap: wrap;
+        gap: 8px;
+        width: 100%;
+    }
+
+    .header-controls .view-button,
+    .header-controls .back-button,
+    #save-list-btn {
+        flex: 1 1 calc(50% - 8px);
+        text-align: center;
+    }
+
+    .toolbar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .sort-controls {
+        order: 3;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    #total-value {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .add-card-form {
+        position: static;
+    }
+
+    #add-card-results {
+        position: static;
+        max-height: none;
+        margin-top: 12px;
+    }
+
+    .printing-result-item {
+        padding: 12px;
+    }
+
+    .card-item {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 16px;
+    }
+
+    .card-image {
+        width: 160px;
+        height: auto;
+        align-self: center;
+    }
+
+    .card-info {
+        width: 100%;
+    }
+
+    .vendor-prices {
+        width: 100%;
+    }
+
+    .card-graph-container {
+        width: 100%;
+        overflow-x: auto;
+    }
+
+    .card-analysis {
+        width: 100%;
+    }
 }

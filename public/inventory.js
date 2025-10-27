@@ -16,6 +16,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const addCardSearch = document.getElementById('add-card-search');
     const addCardResults = document.getElementById('add-card-results');
     const exportBtn = document.getElementById('export-inventory-btn');
+    const exportModal = document.getElementById('export-modal');
+    const exportModalText = document.getElementById('export-modal-text');
+    const exportModalClose = document.getElementById('export-modal-close');
 
     // --- State ---
     let inventory = [];
@@ -246,38 +249,35 @@ const addCardToInventory = async (cardData) => {
         }
     };
 
-    const exportInventoryToTxt = async () => {
-        const exportBtn = document.getElementById('export-inventory-btn');
+    const closeExportModal = () => {
+        if (!exportModal) return;
+        exportModal.classList.remove('show');
+        exportModalText.value = '';
+    };
+
+    const exportInventoryToTxt = () => {
         if (inventory.length === 0) {
-            alert("Your inventory is empty. Nothing to copy.");
+            alert("Your inventory is empty. Nothing to export.");
             return;
         }
 
-        // Sort inventory alphabetically by card name.
         const sortedInventory = [...inventory].sort((a, b) => a.name.localeCompare(b.name));
 
-        let txtContent = "";
-        sortedInventory.forEach(item => {
+        const txtContent = sortedInventory.map(item => {
             const foilMarker = item.foilType !== 'normal' ? ' *F*' : '';
-            txtContent += `${item.quantity} ${item.name} (${item.setCode}) ${item.collectorNumber}${foilMarker}\n`;
-        });
+            return `${item.quantity} ${item.name} (${item.setCode}) ${item.collectorNumber}${foilMarker}`;
+        }).join('\n');
 
-        try {
-            // Use the modern Clipboard API to write the text.
-            await navigator.clipboard.writeText(txtContent);
-            
-            // Provide visual feedback to the user.
-            const originalText = exportBtn.textContent;
-            exportBtn.textContent = 'Copied!';
-            exportBtn.disabled = true;
-            setTimeout(() => {
-                exportBtn.textContent = originalText;
-                exportBtn.disabled = false;
-            }, 2000); // Reset button after 2 seconds
-
-        } catch (err) {
-            console.error('Failed to copy text: ', err);
-            alert('Could not copy to clipboard. Check browser permissions.');
+        if (exportModal && exportModalText) {
+            exportModalText.value = txtContent;
+            exportModal.classList.add('show');
+            requestAnimationFrame(() => {
+                exportModalText.focus();
+                exportModalText.select();
+            });
+        } else {
+            console.log(txtContent);
+            alert('Export modal is unavailable. The text has been logged to the console.');
         }
     };
 
@@ -297,7 +297,7 @@ const addCardToInventory = async (cardData) => {
                 resultItem.className = 'printing-result-item';
                 let finishesHTML = printing.finishes.map(f => `<button class="finish-btn" data-finish="${f}">${f}</button>`).join('');
                 resultItem.innerHTML = `
-                    <img src="${printing.image_uris.art_crop}" loading="lazy">
+                    <img src="${printing.image_uris.normal || printing.image_uris.large || printing.image_uris.small}" loading="lazy">
                     <div><strong>${printing.name}</strong> <span>(${printing.set_name})</span></div>
                     <div class="finishes">${finishesHTML}</div>
                     <div class="add-form-container"></div>`;
@@ -472,8 +472,24 @@ const addCardToInventory = async (cardData) => {
         },
     });
 
-    exportBtn.addEventListener('click', () => {
-        exportInventoryToTxt();
+    exportBtn.addEventListener('click', exportInventoryToTxt);
+
+    if (exportModalClose) {
+        exportModalClose.addEventListener('click', closeExportModal);
+    }
+
+    if (exportModal) {
+        exportModal.addEventListener('click', (event) => {
+            if (event.target === exportModal) {
+                closeExportModal();
+            }
+        });
+    }
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && exportModal?.classList.contains('show')) {
+            closeExportModal();
+        }
     });
 
     inventoryContainer.addEventListener('click', (event) => {

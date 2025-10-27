@@ -137,9 +137,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const image = document.createElement('img');
                 image.loading = 'lazy';
                 image.className = 'printing-result-image';
-                image.alt = `${printing.name} art crop`;
-                image.src = printing.image_uris.art_crop;
-                image.dataset.fullArt = printing.image_uris.normal || '';
+                image.alt = `${printing.name} card art`;
+                const primaryImage = printing.image_uris?.normal || printing.image_uris?.large || printing.image_uris?.small || '';
+                image.src = primaryImage;
+                image.dataset.fullArt = printing.image_uris?.png || printing.image_uris?.large || primaryImage;
                 resultItem.appendChild(image);
 
                 const info = document.createElement('div');

@@ -32,10 +32,10 @@
 
 .card-search__item {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     width: 100%;
-    padding: 8px 12px;
-    gap: 12px;
+    padding: 12px 16px;
+    gap: 16px;
     border: none;
     background: transparent;
     color: #f3f3fb;
@@ -55,23 +55,24 @@
 }
 
 .card-search__thumb {
-    width: 48px;
-    height: 68px;
+    width: 82px;
+    aspect-ratio: 63 / 88;
     object-fit: cover;
-    border-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    border-radius: 6px;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
     flex-shrink: 0;
+    background: rgba(18, 20, 28, 0.8);
 }
 
 .card-search__meta {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 4px;
 }
 
 .card-search__name {
     font-weight: 600;
-    font-size: 0.95rem;
+    font-size: 1rem;
 }
 
 .card-search__set {

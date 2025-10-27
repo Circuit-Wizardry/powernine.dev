@@ -138,6 +138,7 @@ document.addEventListener('DOMContentLoaded', () => {
             </form>
         `;
         modal.style.display = 'flex';
+        modalContentBody.parentElement.scrollTop = 0;
 
         const searchInput = document.getElementById('inventory-search');
         const form = document.getElementById('add-transaction-form');

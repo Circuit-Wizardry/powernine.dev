@@ -4,13 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inventory Management</title>
+    <link rel="icon" href="/media/favicon.png" type="image/png">
     <link rel="stylesheet" href="/inventory-style.css">
     <link rel="stylesheet" href="/card-search.css">
 </head>
 <body>
     <div class="header">
         <h1>Inventory Management</h1>
-        <button id="export-inventory-btn" class="action-btn">Export as TXT</button>
+        <button id="export-inventory-btn" class="action-btn export-btn">Export as TXT</button>
         <a href="/buylist.html" class="back-button">Buylist Analysis</a>
         <a href="/" class="back-button">← Back to Home</a>
     </div>
@@ -25,6 +26,15 @@
 
     <div id="inventory-container">
         </div>
+
+    <div id="export-modal" class="export-modal">
+        <div class="export-modal__content">
+            <button type="button" id="export-modal-close" class="export-modal__close" aria-label="Close export text popup">&times;</button>
+            <h2>Inventory TXT Export</h2>
+            <p>Press <strong>Ctrl + A</strong>, then <strong>Ctrl + C</strong> (or use your device's copy controls) to copy the text below.</p>
+            <textarea id="export-modal-text" readonly></textarea>
+        </div>
+    </div>
 
     <script src="/js/client-utils.js"></script>
     <script src="/inventory.js"></script>
