@@ -548,6 +548,15 @@ h1 { margin: 0; }
         gap: 12px;
     }
 
+    .summary-box {
+        flex-direction: column;
+        margin: 0 0 20px;
+    }
+
+    .summary-item {
+        min-width: unset;
+    }
+
     .sort-controls {
         order: 3;
         justify-content: flex-start;
@@ -602,4 +611,44 @@ h1 { margin: 0; }
     .card-analysis {
         width: 100%;
     }
+}
+
+.summary-box {
+    display: flex;
+    gap: 24px;
+    padding: 12px 10px;
+    margin: 0 10px 20px;
+    background-color: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    flex-wrap: wrap;
+}
+
+.summary-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 200px;
+}
+
+.summary-item span {
+    color: #aaa;
+    font-size: 0.9rem;
+}
+
+.summary-item strong {
+    font-size: 1.15rem;
+    color: var(--primary-color);
+}
+
+.return-percentage {
+    font-size: 1.15rem;
+}
+
+.return-percentage.positive {
+    color: #68d391;
+}
+
+.return-percentage.negative {
+    color: #f56565;
 }

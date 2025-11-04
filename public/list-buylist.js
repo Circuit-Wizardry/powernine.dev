@@ -35,6 +35,97 @@ document.addEventListener('DOMContentLoaded', () => {
         return priceHistory[latestDate] || 0;
     };
 
+    const CARD_IMAGE_PLACEHOLDER = '/image/card-placeholder.jpg';
+
+    const buildTcgImageUrl = (tcgId) => {
+        if (!tcgId) return null;
+        return `https://tcgplayer-cdn.tcgplayer.com/product/${tcgId}_in_200x200.jpg`;
+    };
+
+    const tryParseJson = (value) => {
+        if (!value) return null;
+        if (typeof value === 'string') {
+            try {
+                return JSON.parse(value);
+            } catch {
+                return null;
+            }
+        }
+        return typeof value === 'object' ? value : null;
+    };
+
+    const findImageFromCardData = (cardData) => {
+        const parsedCard = tryParseJson(cardData) || cardData;
+        if (!parsedCard || typeof parsedCard !== 'object') return null;
+
+        const directImage = tryParseJson(parsedCard.imageUris || parsedCard.image_uris);
+        if (directImage) {
+            return directImage.normal || directImage.large || directImage.small || directImage.png || directImage.border_crop || null;
+        }
+
+        const faces = tryParseJson(parsedCard.cardFaces || parsedCard.card_faces);
+        if (Array.isArray(faces)) {
+            for (const face of faces) {
+                const faceImage = findImageFromCardData(face);
+                if (faceImage) return faceImage;
+            }
+        }
+
+        return null;
+    };
+
+    const resolveInitialImageUrl = (card) => {
+        if (!card) return null;
+
+        const directKeys = ['imageUrl', 'imageURI', 'image_uri', 'imageSmall', 'image_small', 'smallImage'];
+        for (const key of directKeys) {
+            if (card[key]) return card[key];
+        }
+
+        const idCandidates = [
+            card.tcgplayerId,
+            card.tcgplayerID,
+            card.tcgplayerProductId,
+            card.tcgplayerProductID,
+            card.tcgplayer_id
+        ].filter(Boolean);
+
+        for (const id of idCandidates) {
+            const url = buildTcgImageUrl(id);
+            if (url) {
+                if (!card.tcgplayerId) card.tcgplayerId = id;
+                return url;
+            }
+        }
+
+        return null;
+    };
+
+    const updateImageFromDetails = (imageEl, card, cardDetails) => {
+        if (!imageEl) return;
+
+        const idCandidates = [
+            card?.tcgplayerId,
+            card?.tcgplayerProductId,
+            cardDetails?.identifiers?.tcgplayerProductId,
+            cardDetails?.identifiers?.tcgplayerId
+        ].filter(Boolean);
+
+        for (const id of idCandidates) {
+            const url = buildTcgImageUrl(id);
+            if (url) {
+                if (card) card.tcgplayerId = id;
+                imageEl.src = url;
+                return;
+            }
+        }
+
+        const fallbackImage = findImageFromCardData(cardDetails?.card);
+        if (fallbackImage) {
+            imageEl.src = fallbackImage;
+        }
+    };
+
     const updatePriceRow = (cardId, data, isLiveScrape = false) => {
         const itemContainer = document.getElementById(`analysis-item-${cardId}`);
         if (!itemContainer) return;
@@ -96,13 +187,10 @@ document.addEventListener('DOMContentLoaded', () => {
         card.id = `${card.setCode}-${card.collectorNumber}-${card.foilType}`;
         itemElement.id = `analysis-item-${card.id}`;
 
-        console.log(card)
-
-        const imageUrl = `https://tcgplayer-cdn.tcgplayer.com/product/${card.tcgplayerId}_in_200x200.jpg`
-            
+        const initialImageUrl = resolveInitialImageUrl(card) || CARD_IMAGE_PLACEHOLDER;
 
         itemElement.innerHTML = `
-            <img src="${imageUrl}" alt="${card.name}" class="item-image" style="width: 50px; height: 70px;">
+            <img src="${initialImageUrl}" alt="${card.name}" class="item-image" data-role="card-image" style="width: 50px; height: 70px;">
             <div class="item-details">
                 <div class="item-header">${card.name} (x${card.quantity}) (${card.setCode}) - ${card.foilType}</div>
                 <div class="price-table-container">
@@ -123,6 +211,14 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>`;
         analysisContainer.appendChild(itemElement);
 
+        const imageElement = itemElement.querySelector('[data-role="card-image"]');
+        if (imageElement) {
+            imageElement.addEventListener('error', () => {
+                imageElement.onerror = null;
+                imageElement.src = CARD_IMAGE_PLACEHOLDER;
+            }, { once: true });
+        }
+
         try {
             const response = await fetch(`/api/card/details/${card.setCode}/${card.collectorNumber}`);
             if (!response.ok) throw new Error('Details fetch failed');
@@ -136,6 +232,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (cardDetails && cardDetails.prices) {
                 updatePriceRow(card.id, cardDetails.prices, false);
             }
+
+            updateImageFromDetails(imageElement, card, cardDetails);
         } catch (error) {
             console.warn(`Could not fetch details for ${card.name}:`, error);
         }
@@ -172,10 +270,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     setCode: card.setCode,
                     collectorNumber: card.collectorNumber,
                     foilType: card.foilType,
-                    condition: "LP"
+                    condition: "LP",
+                    store: 'tcgplayer'
                   })
                 })
-                console.log(card)
                 if (!response.ok) throw new Error(`Scrape failed for ${card.name}`);
                 const scrapedData = await response.json();
                 

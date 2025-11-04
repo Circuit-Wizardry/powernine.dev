@@ -13,7 +13,7 @@
 async function scrapeManaPoolListings(page, manaPoolUrl, foilType, targetCondition) {
     console.log(`  -> Scraping ManaPool for ${foilType} listings at ${targetCondition} or better...`);
     await page.goto(manaPoolUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await page.waitForSelector('li .font-bold.text-green-700', { timeout: 20000 });
+    await page.waitForSelector('li .font-bold.text-green-700, li .font-bold.text-green-600', { timeout: 20000 });
 
     const conditionHierarchy = ['NM', 'LP', 'MP', 'HP', 'DMG'];
     const targetConditionIndex = conditionHierarchy.indexOf(targetCondition);
@@ -34,24 +34,25 @@ async function scrapeManaPoolListings(page, manaPoolUrl, foilType, targetConditi
             try {
                 // --- FIXED: Updated the selector for the seller name ---
                 // The site changed from a <p> tag to nested <div>s for the seller name.
-                const sellerNameElement = item.locator('div.text-sm.truncate.font-medium');
+                const sellerNameElement = item.locator('a.text-sm.truncate.font-medium, div.text-sm.truncate.font-medium').first();
                 const sellerName = await sellerNameElement.textContent({ timeout: 1000 });
-                if (sellerName && sellerName.trim() === 'Fells Forge TCG') {
+                if (sellerName && sellerName.trim().toLowerCase() === 'fells forge tcg') {
                     continue; // Skip this seller
                 }
 
-                const badges = await item.locator('span[class*="rounded-"]').allTextContents();
-                
-                const listingIsFoil = badges.some(b => b.trim() === 'Foil');
-                const listingIsEtched = badges.some(b => b.trim() === 'Etched');
+                const badges = (await item.locator('span[class*="rounded"]').allTextContents()).map(b => b.trim()).filter(Boolean);
+                const normalizedBadges = badges.map(b => b.toLowerCase());
 
-                if (foilType === 'foil' && !listingIsFoil) continue;
+                const listingIsEtched = normalizedBadges.some(b => b.includes('etched'));
+                const listingHasFoilTrait = normalizedBadges.some(b => b.includes('foil')) && !normalizedBadges.some(b => b.includes('non-foil'));
+
+                if (foilType === 'foil' && !listingHasFoilTrait) continue;
                 if (foilType === 'etched' && !listingIsEtched) continue;
-                if (foilType === 'normal' && (listingIsFoil || listingIsEtched)) continue;
+                if (foilType === 'normal' && (listingHasFoilTrait || listingIsEtched)) continue;
 
                 let listingCondition = 'NM'; // Default condition on ManaPool
                 badges.forEach(badgeText => {
-                    const text = badgeText.trim();
+                    const text = badgeText.toUpperCase();
                     if (conditionHierarchy.includes(text)) listingCondition = text;
                 });
                 
@@ -59,9 +60,14 @@ async function scrapeManaPoolListings(page, manaPoolUrl, foilType, targetConditi
 
                 // If the listing's condition meets the criteria
                 if (listingConditionIndex <= targetConditionIndex) {
-                    const priceText = await item.locator('.font-bold.text-green-700').textContent();
+                    const priceElement = item.locator('.font-bold.text-green-700, .font-bold.text-green-600').first();
+                    const priceText = await priceElement.textContent();
                     // Found the first valid listing, return its price
-                    return parseFloat(priceText.replace('$', ''));
+                    if (!priceText) continue;
+                    const numeric = parseFloat(priceText.replace(/[^0-9.]/g, ''));
+                    if (Number.isFinite(numeric)) {
+                        return numeric;
+                    }
                 }
             } catch { continue; }
         }

@@ -9,6 +9,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const addCardSearch = document.getElementById('add-card-search'); // This is for ADDING new cards
     const addCardResults = document.getElementById('add-card-results');
     const totalValueEl = document.getElementById('total-value-amount');
+    const ckBuylistTotalEl = document.getElementById('ck-buylist-total');
+    const ckReturnEl = document.getElementById('ck-return-percentage');
     const warningBanner = document.getElementById('save-warning');
     const previewer = document.getElementById('card-previewer');
     const previewImage = document.getElementById('card-preview-image');
@@ -19,11 +21,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const TCGPLAYER_FEE_RATE = 0.1275;
     const MANAPOOL_FEE_RATE = 0.079;
     const FLAT_FEE = 0.30;
+    const LARGE_CARD_IMAGE_PLACEHOLDER = 'https://placehold.co/245x342/1a1a1a/e0e0e0?text=N/A';
+    const buildLargeTcgImageUrl = (tcgId) => (tcgId ? `https://tcgplayer-cdn.tcgplayer.com/product/${tcgId}_in_1000x1000.jpg` : null);
 
     // --- STATE ---
     let allCards = [];
     let currentSort = { key: 'price', order: 'desc' };
     let totalCollectionValue = 0;
+    let totalCardKingdomBuylistValue = 0;
     let isListSaved = false;
     const pathParts = window.location.pathname.split('/');
     const listId = pathParts[pathParts.length - 1];
@@ -52,6 +57,29 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         return 'N/A';
     };
+
+    const updateSummaryTotals = () => {
+        if (totalValueEl) {
+            totalValueEl.textContent = formatCurrency(totalCollectionValue);
+        }
+        if (ckBuylistTotalEl) {
+            ckBuylistTotalEl.textContent = formatCurrency(totalCardKingdomBuylistValue);
+        }
+        if (ckReturnEl) {
+            if (totalCollectionValue > 0) {
+                const returnRatio = (totalCardKingdomBuylistValue / totalCollectionValue) - 1;
+                const percentText = `${returnRatio >= 0 ? '+' : ''}${(returnRatio * 100).toFixed(1)}%`;
+                ckReturnEl.textContent = percentText;
+                ckReturnEl.classList.remove('positive', 'negative');
+                ckReturnEl.classList.add(returnRatio >= 0 ? 'positive' : 'negative');
+            } else {
+                ckReturnEl.textContent = 'N/A';
+                ckReturnEl.classList.remove('positive', 'negative');
+            }
+        }
+    };
+
+    updateSummaryTotals();
 
     const formatFinishLabel = (finish) => {
         switch (finish) {
@@ -297,8 +325,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const image = document.createElement('img');
         image.className = 'card-image';
-        image.src = card.imageUrl;
+        image.src = card.imageUrl || LARGE_CARD_IMAGE_PLACEHOLDER;
         image.alt = card.name;
+        image.addEventListener('error', () => {
+            image.onerror = null;
+            image.src = LARGE_CARD_IMAGE_PLACEHOLDER;
+        }, { once: true });
         cardElement.appendChild(image);
 
         const info = document.createElement('div');
@@ -440,37 +472,57 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const fetchSingleCardDetails = async (card) => {
-        try {
-            const [rawCardData] = await Promise.all([
-                fetch(`/api/card/details/${card.setCode}/${card.collectorNumber}`),
-            ]);
+        const previousTcgContribution = card._tcgContribution || 0;
+        const previousCkContribution = card._ckBuylistContribution || 0;
 
+        totalCollectionValue -= previousTcgContribution;
+        totalCardKingdomBuylistValue -= previousCkContribution;
+
+        try {
+            const rawCardData = await fetch(`/api/card/details/${card.setCode}/${card.collectorNumber}`);
             const cardData = rawCardData.ok ? await rawCardData.json() : null;
 
-            const cardIdentifiersData = cardData?.identifiers || null;
+            const cardIdentifiersData = cardData?.identifiers || {};
             const cardInfo = cardData?.card || {};
             const setInfo = cardData?.set || {};
             const priceData = cardData?.prices || null;
             const purchaseUrls = cardData?.purchaseUrls || {};
 
-            card.imageUrl = `https://tcgplayer-cdn.tcgplayer.com/product/${cardIdentifiersData.tcgplayerProductId}_in_1000x1000.jpg` || 'https://placehold.co/245x342/1a1a1a/e0e0e0?text=N/A';
-            card.tcgplayerId = cardIdentifiersData.tcgplayerProductId;
-            
+            const tcgProductId = cardIdentifiersData?.tcgplayerProductId || cardIdentifiersData?.tcgplayerId;
+            if (tcgProductId) {
+                card.tcgplayerId = tcgProductId;
+                card.imageUrl = buildLargeTcgImageUrl(tcgProductId) || card.imageUrl || LARGE_CARD_IMAGE_PLACEHOLDER;
+            } else if (!card.imageUrl) {
+                card.imageUrl = LARGE_CARD_IMAGE_PLACEHOLDER;
+            }
+
             card.flavorName = cardInfo.flavorName;
             card.name = cardInfo.name;
             card.setName = setInfo.name;
 
-            const paperPrices = priceData?.paper;
+            const paperPrices = priceData?.paper || {};
+            const tcgRetailPrice = getLatestPrice(paperPrices?.tcgplayer?.retail?.[card.foilType]);
+            const ckRetailPrice = getLatestPrice(paperPrices?.cardkingdom?.retail?.[card.foilType]);
+            const ckBuylistPrice = getLatestPrice(paperPrices?.cardkingdom?.buylist?.[card.foilType]);
 
-            card.price = getLatestPrice(paperPrices?.tcgplayer?.retail?.[card.foilType]);
-            card.ckPrice = getLatestPrice(paperPrices?.cardkingdom?.retail?.[card.foilType]);
+            card.price = tcgRetailPrice;
+            card.ckPrice = ckRetailPrice;
+            card.ckBuylistPrice = ckBuylistPrice;
             card.tcgHistory = paperPrices?.tcgplayer?.retail?.[card.foilType];
             card.ckHistory = paperPrices?.cardkingdom?.retail?.[card.foilType];
             card.purchase_uris = purchaseUrls.tcgplayer || '#';
             card.isLoaded = true;
 
-            totalCollectionValue += card.price * card.quantity;
-            if (totalValueEl) totalValueEl.textContent = `$${totalCollectionValue.toFixed(2)}`;
+            const quantity = Number(card.quantity) || 0;
+            const tcgContribution = Number.isFinite(card.price) ? card.price * quantity : 0;
+            const ckContribution = Number.isFinite(card.ckBuylistPrice) ? card.ckBuylistPrice * quantity : 0;
+
+            card._tcgContribution = tcgContribution;
+            card._ckBuylistContribution = ckContribution;
+
+            totalCollectionValue += tcgContribution;
+            totalCardKingdomBuylistValue += ckContribution;
+            updateSummaryTotals();
 
             const existingElement = document.getElementById(`card-${card.id}`);
             if (existingElement) {
@@ -480,7 +532,12 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             console.error(`Failed to load details for ${card.name || card.collectorNumber}:`, error);
             card.isLoaded = true;
-            card.price = 0; card.ckPrice = 0; card.chPrice = 0;
+            card.price = 0;
+            card.ckPrice = 0;
+            card.ckBuylistPrice = 0;
+            card._tcgContribution = 0;
+            card._ckBuylistContribution = 0;
+            updateSummaryTotals();
         }
     };
 
@@ -489,8 +546,12 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     const fetchAllCardDetails = async () => {
         totalCollectionValue = 0;
+        totalCardKingdomBuylistValue = 0;
+        updateSummaryTotals();
         // Loop through each card individually
         for (const card of allCards) {
+            card._tcgContribution = 0;
+            card._ckBuylistContribution = 0;
             // Wait for the details of the current card to be fetched and processed
             await fetchSingleCardDetails(card);
 
@@ -559,7 +620,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         const response = await fetch(`/api/list/${listId}/save`, { method: 'POST' });
                         if (response.ok) {
                             isListSaved = true;
-                            saveListBtn.textContent = '✓ Saved!';
+                            saveListBtn.textContent = 'Saved!';
                             updateSaveStateUI(); // Hide button and warning
                             window.removeEventListener('beforeunload', handleUnload); // IMPORTANT
                         } else {
@@ -679,7 +740,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const analysisContainer = document.getElementById(`analysis-${card.id}`);
             analysisContainer.innerHTML = getBreakevenTableHTML(card.price, card.tcgLow);
 
-            button.textContent = '✓ Updated';
+            button.textContent = 'Updated';
 
         } catch (error) {
             console.error(error);

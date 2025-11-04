@@ -15,13 +15,13 @@
         <h1>imported collection</h1>
         <div class="header-controls">
             <div id="save-warning" class="warning-banner" style="display: none;">
-              this list is temporary and will be deleted automatically. n "save list" to keep it permanently.
+              This list is temporary and will be deleted automatically. Use "Save List" to keep it permanently.
             </div>
             <button id="save-list-btn" class="view-button">Save List</button>
             <a href="/" id="switch-view-btn" class="view-button">Switch to Binder</a>
             <!-- === NEW BUTTON ADDED HERE === -->
             <a href="#" id="buylist-analysis-btn" class="view-button">Buylist Analysis</a>
-            <a href="/" class="back-button">← import new list</a>
+            <a href="/" class="back-button">import new list</a>
         </div>
     </div>
     
@@ -54,6 +54,17 @@
         </div>
     </div>
 
+    <div id="buylist-summary" class="summary-box">
+        <div class="summary-item">
+            <span>Total CardKingdom Buylist:</span>
+            <strong id="ck-buylist-total">$0.00</strong>
+        </div>
+        <div class="summary-item">
+            <span>Return vs TCG Market:</span>
+            <strong id="ck-return-percentage" class="return-percentage">N/A</strong>
+        </div>
+    </div>
+
     <div id="card-list-container">
         <!-- Cards will be dynamically inserted here by list.js -->
     </div>
@@ -66,3 +77,4 @@
     </div>
 </body>
 </html>
+

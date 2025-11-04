@@ -124,12 +124,12 @@ export default function(db) {
                 // ckBuylist: ckPrice, // Add results from other scrapers here
             };
 
-            console.log(`✅ Buylist scrape successful:`, buylistData);
+            console.log('[scrape-buylists] Scrape successful:', buylistData);
             
             res.json(buylistData);
 
         } catch (error) {
-            console.error(`❌ Buylist scrape failed for ${cardName}:`, error);
+            console.error('[scrape-buylists] Scrape failed for ' + cardName + ':', error);
             res.status(500).json({ error: 'An unexpected error occurred during the buylist scrape.' });
         } finally {
             if (browser) await browser.close();
@@ -165,32 +165,35 @@ export default function(db) {
 
             // If the store is specified as 'manapool', only scrape ManaPool.
             if (store === 'manapool') {
-                console.log(`🚀 Starting ManaPool-only scrape job for: ${logMessage}`);
+                console.log('[scrape-lows] Starting ManaPool-only scrape for ' + logMessage);
 
                 const cardSlug = cardName.toLowerCase().replace(/\s/g, '-').replace(/[^a-z0-9-]/g, '');
                 const manaPoolUrl = `https://manapool.com/card/${setCode.toLowerCase()}/${collectorNumber}/${cardSlug}`;
                 const mpData = await scrapeManaPoolListings(page, manaPoolUrl, foilType, condition ? condition : "DMG");
                 manaPoolLow = mpData.cheapestPrice;
                 
-                console.log(`✅ Scrape successful: MP=${manaPoolLow}`);
-            } 
-            // Otherwise, perform the default behavior of scraping both.
-            else {
-                console.log(`🚀 Starting full scrape job for: ${logMessage}`);
+                console.log('[scrape-lows] ManaPool scrape successful:', { manaPoolLow });
+            } else {
+                console.log('[scrape-lows] Starting full scrape job for ' + logMessage);
 
                 const tcgData = await scrapeTcgplayerData(page, tcgplayerId, foilType, condition ? condition : "DMG");
-                console.log (`   -> TCGplayer scrape returned:`, tcgData);
+                console.log('   -> TCGplayer scrape returned:', tcgData);
                 tcgLow = tcgData.cheapestListing?.itemPrice ?? null; 
                 tcgLowPlusShipping = tcgData.cheapestListing?.totalPrice ?? null;
                 
-                const cardSlug = cardName.toLowerCase().replace(/\s/g, '-').replace(/[^a-z0-9-]/g, '');
-                const manaPoolUrl = `https://manapool.com/card/${setCode.toLowerCase()}/${collectorNumber}/${cardSlug}`;
-                const mpData = await scrapeManaPoolListings(page, manaPoolUrl, foilType, condition ? condition : "DMG");
-                manaPoolLow = mpData.cheapestPrice;
+                const shouldScrapeManaPool = store !== 'tcgplayer' && store !== 'tcgplayer-only' && store !== 'tcg';
+                if (shouldScrapeManaPool) {
+                    const cardSlug = cardName.toLowerCase().replace(/\s/g, '-').replace(/[^a-z0-9-]/g, '');
+                    const manaPoolUrl = `https://manapool.com/card/${setCode.toLowerCase()}/${collectorNumber}/${cardSlug}`;
+                    const mpData = await scrapeManaPoolListings(page, manaPoolUrl, foilType, condition ? condition : "DMG");
+                    manaPoolLow = mpData.cheapestPrice;
+                } else {
+                    console.log('     -> Skipping ManaPool scrape per request.');
+                }
 
-                console.log(`✅ Scrape successful: TCG=${tcgLow}, MP=${manaPoolLow}`);
+                console.log('[scrape-lows] Scrape successful:', { tcgLow, tcgLowPlusShipping, manaPoolLow });
             }
-            
+
             res.json({
                 tcgLow: tcgLow, // Will be null if only ManaPool was scraped
                 tcgLowPlusShipping: tcgLowPlusShipping,
@@ -198,7 +201,7 @@ export default function(db) {
             });
 
         } catch (error) {
-            console.error(`❌ Scrape failed for ${cardName}:`, error);
+            console.error('[scrape-lows] Scrape failed for ' + cardName + ':', error);
             res.status(500).json({ error: 'Failed to scrape pricing data.' });
         } finally {
             if (browser) await browser.close();
