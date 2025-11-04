@@ -6,11 +6,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const progressBar = document.getElementById('progress-bar');
     const progressText = document.getElementById('progress-text');
     const listNameHeader = document.getElementById('list-name-header');
+    const tcgLowSlider = document.getElementById('tcg-low-slider');
+    const tcgLowSliderValue = document.getElementById('tcg-low-slider-value');
 
     // --- State ---
     let cardList = [];
     const pathParts = window.location.pathname.split('/');
     const listId = pathParts[pathParts.length - 1];
+    let tcgLowTargetPercent = tcgLowSlider ? Number(tcgLowSlider.value) / 100 : 0.85;
 
     // --- Helper Functions ---
     const formatPrice = (value) => {
@@ -126,6 +129,82 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    const writePriceCell = (cell, value, fallbackText = 'N/A') => {
+        if (!cell) return;
+        if (typeof value === 'number' && Number.isFinite(value)) {
+            cell.textContent = formatPrice(value);
+            cell.dataset.numeric = value;
+        } else if (typeof value === 'string') {
+            cell.textContent = value;
+            delete cell.dataset.numeric;
+        } else {
+            cell.textContent = fallbackText;
+            delete cell.dataset.numeric;
+        }
+    };
+
+    const getBaseLowForCard = (card) => {
+        if (typeof card.tcgLow === 'number' && Number.isFinite(card.tcgLow)) return card.tcgLow;
+        if (typeof card.tcgLowPlusShipping === 'number' && Number.isFinite(card.tcgLowPlusShipping)) return card.tcgLowPlusShipping;
+        return null;
+    };
+
+    const computeTargetBuyPrice = (card) => {
+        const baseLow = getBaseLowForCard(card);
+        if (!Number.isFinite(baseLow)) return null;
+        const target = baseLow * tcgLowTargetPercent;
+        return Number.isFinite(target) ? target : null;
+    };
+
+    const applyProfitClasses = (card, itemContainer) => {
+        if (!itemContainer) return;
+        const referencePrice =
+            (typeof card.targetBuyPrice === 'number' && Number.isFinite(card.targetBuyPrice))
+                ? card.targetBuyPrice
+                : getBaseLowForCard(card);
+
+        ['ckBuylist', 'scgBuylist', 'csiBuylist'].forEach((buylistKey) => {
+            const cell = itemContainer.querySelector(`[data-price-type="${buylistKey}"]`);
+            if (!cell) return;
+            cell.classList.remove('profitable', 'warning', 'loss');
+
+            const value = Number(cell.dataset.numeric);
+            if (!Number.isFinite(value) || !Number.isFinite(referencePrice)) return;
+
+            const ratio = value / referencePrice;
+            if (ratio >= 1.05) {
+                cell.classList.add('profitable');
+            } else if (ratio >= 0.95) {
+                cell.classList.add('warning');
+            } else {
+                cell.classList.add('loss');
+            }
+        });
+    };
+
+    const updateTargetHeaders = () => {
+        const percentLabel = `${Math.round(tcgLowTargetPercent * 100)}%`;
+        document.querySelectorAll('[data-role="target-percent-label"]').forEach(label => {
+            label.textContent = percentLabel;
+        });
+        if (tcgLowSliderValue) {
+            tcgLowSliderValue.textContent = percentLabel;
+        }
+    };
+
+    const refreshTargetAndProfit = () => {
+        cardList.forEach((card) => {
+            const container = document.getElementById(`analysis-item-${card.id}`);
+            if (!container) return;
+            card.targetBuyPrice = computeTargetBuyPrice(card);
+            const targetCell = container.querySelector('[data-price-type="targetBuy"]');
+            writePriceCell(targetCell, card.targetBuyPrice, '--');
+            applyProfitClasses(card, container);
+        });
+    };
+
+    updateTargetHeaders();
+
     const updatePriceRow = (cardId, data, isLiveScrape = false) => {
         const itemContainer = document.getElementById(`analysis-item-${cardId}`);
         if (!itemContainer) return;
@@ -134,60 +213,49 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!card) return;
 
         if (isLiveScrape) {
-            for (const key in data) {
-                const cell = itemContainer.querySelector(`[data-price-type="${key}"]`);
-                if (cell) {
-                    cell.textContent = formatPrice(data[key]);
-                }
+            if (typeof data.tcgLow === 'number' && Number.isFinite(data.tcgLow)) {
+                card.tcgLow = data.tcgLow;
             }
-            const newReferencePrice = data.tcgLowPlusShipping;
-            ['ckBuylist', 'scgBuylist', 'csiBuylist'].forEach(buylistKey => {
-                const buylistCell = itemContainer.querySelector(`[data-price-type="${buylistKey}"]`);
-                if (buylistCell) {
-                    const buylistPrice = parseFloat(buylistCell.textContent.replace('$', ''));
-                    if (!isNaN(buylistPrice) && typeof newReferencePrice === 'number' && buylistPrice > newReferencePrice) {
-                        buylistCell.classList.add('profitable');
-                    } else {
-                        buylistCell.classList.remove('profitable');
-                    }
-                }
-            });
+            if (typeof data.tcgLowPlusShipping === 'number' && Number.isFinite(data.tcgLowPlusShipping)) {
+                card.tcgLowPlusShipping = data.tcgLowPlusShipping;
+            }
+
+            const tcgLowCell = itemContainer.querySelector('[data-price-type="tcgLow"]');
+            writePriceCell(tcgLowCell, card.tcgLow, 'Awaiting scrape');
+
+            const tcgLowShipCell = itemContainer.querySelector('[data-price-type="tcgLowPlusShipping"]');
+            writePriceCell(tcgLowShipCell, card.tcgLowPlusShipping, 'Awaiting scrape');
         } else {
-            const referencePrice = card.tcgLowPlusShipping;
             const foilType = card.foilType;
+            const tcgMarketPrice = getLatestPrice(data?.paper?.tcgplayer?.retail?.[foilType]);
+            const ckBuylistPrice = getBuylists(data, 'cardkingdom', foilType);
+            const scgBuylistPrice = getBuylists(data, 'starcitygames', foilType);
+            const csiBuylistPrice = getBuylists(data, 'coolstuffinc', foilType);
 
-            const pricesToUpdate = {
-                tcgMarketPrice: getLatestPrice(data?.paper?.tcgplayer?.retail?.[foilType]),
-                ckBuylist: getBuylists(data, 'cardkingdom', foilType),
-                scgBuylist: getBuylists(data, 'starcitygames', foilType),
-                csiBuylist: getBuylists(data, 'coolstuffinc', foilType)
-            };
+            card.tcgMarketPrice = tcgMarketPrice;
+            card.ckBuylistPrice = ckBuylistPrice;
+            card.scgBuylistPrice = scgBuylistPrice;
+            card.csiBuylistPrice = csiBuylistPrice;
 
-            for (const key in pricesToUpdate) {
-                const cell = itemContainer.querySelector(`[data-price-type="${key}"]`);
-                if (cell) {
-                    const value = pricesToUpdate[key];
-                    cell.textContent = formatPrice(value);
-                    if (key.includes('Buylist')) {
-                        if (typeof value === 'number' && typeof referencePrice === 'number' && value > referencePrice) {
-                            cell.classList.add('profitable');
-                        } else {
-                            cell.classList.remove('profitable');
-                        }
-                    }
-                }
-            }
+            writePriceCell(itemContainer.querySelector('[data-price-type="tcgMarketPrice"]'), tcgMarketPrice);
+            writePriceCell(itemContainer.querySelector('[data-price-type="ckBuylist"]'), ckBuylistPrice);
+            writePriceCell(itemContainer.querySelector('[data-price-type="scgBuylist"]'), scgBuylistPrice);
+            writePriceCell(itemContainer.querySelector('[data-price-type="csiBuylist"]'), csiBuylistPrice);
         }
+
+        card.targetBuyPrice = computeTargetBuyPrice(card);
+        writePriceCell(itemContainer.querySelector('[data-price-type="targetBuy"]'), card.targetBuyPrice, '--');
+
+        applyProfitClasses(card, itemContainer);
     };
     
     const renderAndFetchDetails = async (card) => {
         const itemElement = document.createElement('div');
         itemElement.className = 'analysis-item';
-        // Use a unique ID based on the card's properties
-        card.id = `${card.setCode}-${card.collectorNumber}-${card.foilType}`;
         itemElement.id = `analysis-item-${card.id}`;
 
         const initialImageUrl = resolveInitialImageUrl(card) || CARD_IMAGE_PLACEHOLDER;
+        const percentLabel = `${Math.round(tcgLowTargetPercent * 100)}%`;
 
         itemElement.innerHTML = `
             <img src="${initialImageUrl}" alt="${card.name}" class="item-image" data-role="card-image" style="width: 50px; height: 70px;">
@@ -195,12 +263,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="item-header">${card.name} (x${card.quantity}) (${card.setCode}) - ${card.foilType}</div>
                 <div class="price-table-container">
                     <table>
-                        <thead> <tr> <th>TCG Market</th> <th>TCG Low</th> <th>TCG Low + Ship</th> <th>CK Buylist</th> <th>SCG Buylist</th> <th>CSI Buylist</th> </tr> </thead>
+                        <thead>
+                            <tr>
+                                <th>TCG Market</th>
+                                <th>TCG Low</th>
+                                <th class="target-column">Target @ <span data-role="target-percent-label">${percentLabel}</span></th>
+                                <th>TCG Low + Ship</th>
+                                <th>CK Buylist</th>
+                                <th>SCG Buylist</th>
+                                <th>CSI Buylist</th>
+                            </tr>
+                        </thead>
                         <tbody>
                             <tr>
                                 <td data-price-type="tcgMarketPrice">...</td>
-                                <td data-price-type="tcgLow">N/A</td>
-                                <td data-price-type="tcgLowPlusShipping">N/A</td>
+                                <td data-price-type="tcgLow">Awaiting scrape</td>
+                                <td data-price-type="targetBuy">--</td>
+                                <td data-price-type="tcgLowPlusShipping">Awaiting scrape</td>
                                 <td data-price-type="ckBuylist">...</td>
                                 <td data-price-type="scgBuylist">...</td>
                                 <td data-price-type="csiBuylist">...</td>
@@ -210,6 +289,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             </div>`;
         analysisContainer.appendChild(itemElement);
+        const tcgLowCell = itemElement.querySelector('[data-price-type="tcgLow"]');
+        writePriceCell(tcgLowCell, card.tcgLow, 'Awaiting scrape');
+
+        const tcgLowShipCell = itemElement.querySelector('[data-price-type="tcgLowPlusShipping"]');
+        writePriceCell(tcgLowShipCell, card.tcgLowPlusShipping, 'Awaiting scrape');
+
+        card.targetBuyPrice = computeTargetBuyPrice(card);
+        const targetCell = itemElement.querySelector('[data-price-type="targetBuy"]');
+        writePriceCell(targetCell, card.targetBuyPrice, '--');
+        applyProfitClasses(card, itemElement);
 
         const imageElement = itemElement.querySelector('[data-role="card-image"]');
         if (imageElement) {
@@ -300,8 +389,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(`/api/list/${listId}`);
             if (!response.ok) throw new Error("Could not fetch list data.");
             const listData = await response.json();
-            
-            cardList = listData.content;
+
+            cardList = listData.content.map((card, index) => ({
+                ...card,
+                id: `${card.setCode}-${card.collectorNumber}-${card.foilType}-${index}`,
+                tcgLow: (typeof card.tcgLow === 'number' && !isNaN(card.tcgLow)) ? card.tcgLow : null,
+                tcgLowPlusShipping: (typeof card.tcgLowPlusShipping === 'number' && !isNaN(card.tcgLowPlusShipping)) ? card.tcgLowPlusShipping : null,
+                targetBuyPrice: null
+            }));
             listNameHeader.textContent = listData.name || `Analysis for List ${listId}`;
 
             if (cardList.length === 0) {
@@ -311,6 +406,7 @@ document.addEventListener('DOMContentLoaded', () => {
             analysisContainer.innerHTML = '';
 
             cardList.forEach(card => renderAndFetchDetails(card));
+            refreshTargetAndProfit();
 
         } catch (error) {
             console.error(error);
@@ -318,6 +414,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    if (tcgLowSlider) {
+        tcgLowSlider.addEventListener('input', (event) => {
+            tcgLowTargetPercent = Number(event.target.value) / 100;
+            updateTargetHeaders();
+            refreshTargetAndProfit();
+        });
+    }
+
     scrapeAllBtn.addEventListener('click', scrapeAllItems);
     initializePage();
 });
+
+

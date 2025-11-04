@@ -120,6 +120,69 @@ h1 { margin: 0; }
 .card-info p { margin: 0; color: #aaa; font-size: 0.85rem; }
 .foil-indicator { font-weight: 600; color: #f0e68c; display: inline-block; margin-left: 8px; }
 
+.card-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 8px 0 12px;
+}
+
+.metric-pill {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background-color: rgba(255, 255, 255, 0.04);
+    min-width: 132px;
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.metric-pill .metric-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #9aa1ad;
+    margin-bottom: 2px;
+}
+
+.metric-pill .metric-value {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.metric-pill.positive {
+    border-color: #2f855a;
+    background-color: rgba(47, 133, 90, 0.18);
+}
+
+.metric-pill.positive .metric-value {
+    color: #68d391;
+}
+
+.metric-pill.negative {
+    border-color: #c53030;
+    background-color: rgba(197, 48, 48, 0.16);
+}
+
+.metric-pill.negative .metric-value {
+    color: #f56565;
+}
+
+.metric-pill.live .metric-label {
+    color: var(--primary-color);
+}
+
+.metric-pill.live .metric-value {
+    color: var(--primary-color);
+}
+
+.metric-pill.live {
+    border-color: var(--primary-color);
+}
+
 .card-quantity, .card-price {
     flex-basis: 100px;
     text-align: right;

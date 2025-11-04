@@ -58,6 +58,36 @@ document.addEventListener('DOMContentLoaded', () => {
         return 'N/A';
     };
 
+    const hasLiveTcgLow = (card) => typeof card?.tcgLow === 'number' && Number.isFinite(card.tcgLow);
+
+    const updateCardMetrics = (card) => {
+        const ckMetricValue = document.getElementById(`metric-ck-${card.id}`);
+        if (ckMetricValue) {
+            ckMetricValue.textContent = formatCurrency(card.ckBuylistPrice);
+            const ckPill = ckMetricValue.closest('.metric-pill');
+            if (ckPill) {
+                ckPill.classList.remove('positive', 'negative');
+                if (typeof card.ckBuylistPrice === 'number' && Number.isFinite(card.ckBuylistPrice) && typeof card.price === 'number' && Number.isFinite(card.price)) {
+                    ckPill.classList.add(card.ckBuylistPrice >= card.price ? 'positive' : 'negative');
+                }
+            }
+        }
+        const tcgLabel = document.getElementById(`metric-tcg-label-${card.id}`);
+        const tcgValue = document.getElementById(`metric-tcg-${card.id}`);
+        const pill = tcgValue ? tcgValue.closest('.metric-pill') : null;
+
+        if (tcgLabel) {
+            tcgLabel.textContent = hasLiveTcgLow(card) ? 'TCG Low' : 'TCG Market';
+        }
+        if (tcgValue) {
+            const metricNumber = hasLiveTcgLow(card) ? card.tcgLow : card.price;
+            tcgValue.textContent = formatCurrency(metricNumber);
+        }
+        if (pill) {
+            pill.classList.toggle('live', hasLiveTcgLow(card));
+        }
+    };
+
     const updateSummaryTotals = () => {
         if (totalValueEl) {
             totalValueEl.textContent = formatCurrency(totalCollectionValue);
@@ -269,7 +299,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 ...cardData,
                 id: generateId(),
                 isLoaded: false,
-                price: 0, ckPrice: 0, chPrice: 0
+                price: null,
+                ckPrice: null,
+                ckBuylistPrice: null,
+                chPrice: null,
+                tcgLow: null,
+                tcgLowPlusShipping: null
             };
 
             allCards.push(newCard);
@@ -348,6 +383,20 @@ document.addEventListener('DOMContentLoaded', () => {
         setDetails.textContent = `${card.setName} (#${card.collectorNumber})`;
         info.appendChild(setDetails);
 
+        const metrics = document.createElement('div');
+        metrics.className = 'card-metrics';
+        metrics.innerHTML = `
+            <div class="metric-pill" data-metric="ck">
+                <span class="metric-label">CK Buylist</span>
+                <strong class="metric-value" id="metric-ck-${card.id}">${formatCurrency(card.ckBuylistPrice)}</strong>
+            </div>
+            <div class="metric-pill" data-metric="tcg">
+                <span class="metric-label" id="metric-tcg-label-${card.id}">${hasLiveTcgLow(card) ? 'TCG Low' : 'TCG Market'}</span>
+                <strong class="metric-value" id="metric-tcg-${card.id}">${formatCurrency(hasLiveTcgLow(card) ? card.tcgLow : card.price)}</strong>
+            </div>
+        `;
+        info.appendChild(metrics);
+
         const scrapeButton = document.createElement('button');
         scrapeButton.className = 'scrape-btn';
         scrapeButton.dataset.cardId = card.id;
@@ -398,8 +447,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         appendPriceRow('TCG Market', card.price, { href: card.purchase_uris });
         appendPriceRow('Card Kingdom', card.ckPrice);
-        appendPriceRow('TCG Low', '-', { id: `tcg-low-${card.id}` });
-        appendPriceRow('ManaPool Low', '-', { id: `mp-low-${card.id}` });
+        appendPriceRow('CK Buylist', card.ckBuylistPrice, { id: `ck-buylist-${card.id}` });
+        const initialLowValue = hasLiveTcgLow(card) ? card.tcgLow : 'Press "Check Live Lows"';
+        const initialLowShipValue = (typeof card.tcgLowPlusShipping === 'number' && Number.isFinite(card.tcgLowPlusShipping))
+            ? card.tcgLowPlusShipping
+            : 'Press "Check Live Lows"';
+        appendPriceRow('TCG Low', initialLowValue, { id: `tcg-low-${card.id}` });
+        appendPriceRow('TCG Low + Ship', initialLowShipValue, { id: `tcg-low-ship-${card.id}` });
 
         cardElement.appendChild(priceTable);
 
@@ -415,6 +469,8 @@ document.addEventListener('DOMContentLoaded', () => {
         canvas.id = `chart-${card.id}`;
         chartContainer.appendChild(canvas);
         cardElement.appendChild(chartContainer);
+
+        updateCardMetrics(card);
     };
 
     
@@ -523,6 +579,7 @@ document.addEventListener('DOMContentLoaded', () => {
             totalCollectionValue += tcgContribution;
             totalCardKingdomBuylistValue += ckContribution;
             updateSummaryTotals();
+            updateCardMetrics(card);
 
             const existingElement = document.getElementById(`card-${card.id}`);
             if (existingElement) {
@@ -538,6 +595,7 @@ document.addEventListener('DOMContentLoaded', () => {
             card._tcgContribution = 0;
             card._ckBuylistContribution = 0;
             updateSummaryTotals();
+            updateCardMetrics(card);
         }
     };
 
@@ -644,7 +702,13 @@ document.addEventListener('DOMContentLoaded', () => {
             allCards = importedCards.content.map((card, index) => ({
                 ...card,
                 id: `${card.setCode}-${card.collectorNumber}-${card.foilType}-${index}`,
-                isLoaded: false, price: 0, ckPrice: 0, chPrice: 0
+                isLoaded: false,
+                price: Number.isFinite(Number(card.price)) ? Number(card.price) : null,
+                ckPrice: Number.isFinite(Number(card.ckPrice)) ? Number(card.ckPrice) : null,
+                ckBuylistPrice: Number.isFinite(Number(card.ckBuylistPrice)) ? Number(card.ckBuylistPrice) : null,
+                chPrice: Number.isFinite(Number(card.chPrice)) ? Number(card.chPrice) : null,
+                tcgLow: typeof card.tcgLow === 'number' ? card.tcgLow : null,
+                tcgLowPlusShipping: typeof card.tcgLowPlusShipping === 'number' ? card.tcgLowPlusShipping : null
             }));
             
             switchViewBtn.href = `/binder/${listId}`;
@@ -723,7 +787,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     cardName: card.name,
                     setCode: card.setCode,
                     collectorNumber: card.collectorNumber,
-                    foilType: card.foilType
+                    foilType: card.foilType,
+                    store: 'tcgplayer'
                  })
             });
 
@@ -731,14 +796,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const scrapedData = await response.json();
             
-            card.tcgLow = scrapedData.tcgLow;
-            card.manaPoolLow = scrapedData.manaPoolLow;
+            card.tcgLow = (typeof scrapedData.tcgLow === 'number' && Number.isFinite(scrapedData.tcgLow)) ? scrapedData.tcgLow : null;
+            card.tcgLowPlusShipping = (typeof scrapedData.tcgLowPlusShipping === 'number' && Number.isFinite(scrapedData.tcgLowPlusShipping)) ? scrapedData.tcgLowPlusShipping : null;
 
-            document.getElementById(`tcg-low-${card.id}`).textContent = card.tcgLow ? `$${card.tcgLow.toFixed(2)}` : 'N/A';
-            document.getElementById(`mp-low-${card.id}`).textContent = card.manaPoolLow ? `$${card.manaPoolLow.toFixed(2)}` : 'N/A';
+            const tcgLowCell = document.getElementById(`tcg-low-${card.id}`);
+            if (tcgLowCell) {
+                tcgLowCell.textContent = card.tcgLow ? formatCurrency(card.tcgLow) : 'N/A';
+            }
+            const tcgLowShipCell = document.getElementById(`tcg-low-ship-${card.id}`);
+            if (tcgLowShipCell) {
+                tcgLowShipCell.textContent = formatCurrency(card.tcgLowPlusShipping);
+            }
+            const ckBuylistCell = document.getElementById(`ck-buylist-${card.id}`);
+            if (ckBuylistCell) {
+                ckBuylistCell.textContent = formatCurrency(card.ckBuylistPrice);
+            }
 
             const analysisContainer = document.getElementById(`analysis-${card.id}`);
             analysisContainer.innerHTML = getBreakevenTableHTML(card.price, card.tcgLow);
+
+            updateCardMetrics(card);
 
             button.textContent = 'Updated';
 

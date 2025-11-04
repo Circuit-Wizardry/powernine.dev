@@ -32,8 +32,42 @@ h1 {
 
 .controls {
     display: flex;
-    align-items: center;
+  	align-items: center;
     gap: 1rem;
+}
+
+.target-control {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.target-control label {
+    font-weight: 600;
+    color: #1a1a1a;
+}
+
+.slider-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+#tcg-low-slider {
+    flex: 1;
+    accent-color: #007bff;
+}
+
+#tcg-low-slider-value {
+    font-weight: 600;
+    color: #007bff;
+}
+
+.target-hint {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #666;
 }
 
 #scrape-all-btn {
@@ -90,10 +124,18 @@ h1 {
 /* List Item Styles */
 .analysis-item {
     display: flex;
-    gap: 1rem;
-    padding: 1rem;
-    border-bottom: 1px solid #eee;
-    transition: background-color 0.3s;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid #e4e7eb;
+    border-radius: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.analysis-item:hover {
+    background-color: #f8fafc;
+    box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
 }
 
 .analysis-item.scraping {
@@ -112,36 +154,101 @@ h1 {
 }
 
 .item-details {
-    flex-grow: 1;
+    flex: 1;
+    min-width: 260px;
 }
 
 .item-header {
-    font-size: 1.1rem;
-    font-weight: 500;
+    font-size: 1rem;
+    font-weight: 600;
     margin-bottom: 0.5rem;
+    color: #1f2933;
 }
 
 /* Price Table Styles */
+.price-table-container {
+    width: 100%;
+    overflow-x: auto;
+}
+
 .price-table-container table {
     width: 100%;
-    border-collapse: collapse;
-    font-size: 0.9rem;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: fixed;
+    font-size: 0.85rem;
 }
 
 .price-table-container th,
 .price-table-container td {
-    padding: 8px;
+    padding: 6px 10px;
     text-align: left;
-    border: 1px solid #ddd;
+    border: 1px solid #e2e8f0;
 }
 
 .price-table-container th {
-    background-color: #f8f9fa;
+    background-color: #f4f6f8;
+    font-weight: 600;
+    color: #425466;
 }
 
-/* Profitable Cell Styling */
-.profitable {
-    color: #28a745;
-    font-weight: bold;
-    background-color: #e9f7ea;
+.price-table-container td {
+    background-color: #ffffff;
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.price-table-container td[data-price-type="targetBuy"] {
+    font-weight: 600;
+    color: #1d4ed8;
+}
+
+/* Profitability Styling */
+.price-table-container td.profitable {
+    background-color: #e6f6ef;
+    color: #246b4a;
+    font-weight: 600;
+}
+
+.price-table-container td.warning {
+    background-color: #fff4db;
+    color: #8f6500;
+    font-weight: 600;
+}
+
+.price-table-container td.loss {
+    background-color: #fde8e8;
+    color: #c53030;
+    font-weight: 600;
+}
+@media (max-width: 768px) {
+    header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    .controls {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+
+    .slider-wrapper {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+
+    #tcg-low-slider {
+        width: 100%;
+    }
+
+    .analysis-item {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .item-image {
+        width: 80px;
+    }
 }

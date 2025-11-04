@@ -22,6 +22,15 @@
             </div>
         </header>
 
+        <section class="target-control">
+            <label for="tcg-low-slider">% of TCG Low</label>
+            <div class="slider-wrapper">
+                <input type="range" id="tcg-low-slider" min="50" max="105" step="1" value="85">
+                <span id="tcg-low-slider-value">85%</span>
+            </div>
+            <p class="target-hint">Adjust your target discount to highlight buylist offers that beat it.</p>
+        </section>
+
         <main id="analysis-container">
             <p>Loading list data...</p>
         </main>
