@@ -19,15 +19,45 @@ body {
 
 .header {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
+    gap: 16px;
     margin-bottom: 24px;
     padding: 0 10px;
 }
 
+.header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+}
+
 h1 { margin: 0; }
 
-.header-controls { display: flex; gap: 16px; }
+.header-controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+
+.inventory-filter {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 4px;
+}
+
+.filter-input {
+    width: min(420px, 100%);
+    background-color: var(--surface-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 1rem;
+}
+
+#inventory-filter-empty {
+    margin: 0 10px 16px;
+    text-align: left;
+    font-size: 0.95rem;
+    color: #cbd5f5;
+}
 
 .view-button, .back-button, .action-btn {
     color: var(--primary-color);
@@ -565,6 +595,12 @@ h1 { margin: 0; }
         gap: 12px;
     }
 
+    .header-top {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
     .header-controls {
         flex-wrap: wrap;
         width: 100%;
@@ -575,6 +611,15 @@ h1 { margin: 0; }
     .header-controls .back-button {
         flex: 1 1 calc(50% - 8px);
         text-align: center;
+    }
+
+    .inventory-filter {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .filter-input {
+        width: 100%;
     }
 
     .toolbar {

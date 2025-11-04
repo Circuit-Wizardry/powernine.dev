@@ -19,9 +19,45 @@ document.addEventListener('DOMContentLoaded', () => {
     const exportModal = document.getElementById('export-modal');
     const exportModalText = document.getElementById('export-modal-text');
     const exportModalClose = document.getElementById('export-modal-close');
+    const filterInput = document.getElementById('inventory-filter');
+    const filterMessage = document.getElementById('inventory-filter-empty');
 
     // --- State ---
     let inventory = [];
+    let inventoryFilterTerm = '';
+
+    const normalizeFilterTerm = (value = '') => value.toLowerCase().trim();
+
+    inventoryFilterTerm = normalizeFilterTerm(filterInput?.value || '');
+
+    const matchesFilter = (item) => {
+        if (!inventoryFilterTerm) return true;
+        const haystack = item._searchIndex || '';
+        const tokens = inventoryFilterTerm.split(/\s+/).filter(Boolean);
+        return tokens.every(token => haystack.includes(token));
+    };
+
+    const applyInventoryFilter = () => {
+        if (!inventoryContainer) return;
+        const hasInventory = inventory.length > 0;
+        let visibleCount = 0;
+
+        inventory.forEach(item => {
+            const element = document.getElementById(`item-${item.id}`);
+            if (!element) return;
+            const show = matchesFilter(item);
+            element.style.display = show ? '' : 'none';
+            if (show) visibleCount += 1;
+        });
+
+        if (filterMessage) {
+            if (!hasInventory) {
+                filterMessage.hidden = true;
+            } else {
+                filterMessage.hidden = visibleCount !== 0;
+            }
+        }
+    };
 
     const RATE_LIMIT_MS = 5;
     const detailRequestQueue = [];
@@ -96,6 +132,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const renderInventory = () => {
         if (inventory.length === 0) {
             inventoryContainer.innerHTML = '<p class="empty-list-message">Your inventory is empty. Add a card to get started.</p>';
+            if (filterMessage) filterMessage.hidden = true;
             return;
         }
         inventoryContainer.innerHTML = '';
@@ -110,6 +147,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 inventoryContainer.appendChild(itemElement);
                 addToDetailQueue(() => fetchSingleCardDetails(item));
             });
+
+        applyInventoryFilter();
     };
 
     const updateQuantity = async (itemId, action) => {
@@ -135,13 +174,18 @@ document.addEventListener('DOMContentLoaded', () => {
             // If the item is deleted (quantity is 0), remove it from the view
             if (newQuantity === 0) {
                  document.getElementById(`item-${item.id}`).remove();
+                 inventory = inventory.filter(entry => entry.id !== itemId);
+                 applyInventoryFilter();
+                 return;
             }
+            applyInventoryFilter();
         } catch (error) {
             console.error(error);
             // Revert UI on failure
             item.quantity = originalQuantity;
             document.getElementById(`quantity-${item.id}`).textContent = `x${originalQuantity}`;
             alert('Failed to update quantity on the server.');
+            applyInventoryFilter();
         }
     };
 
@@ -175,6 +219,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const ckBuylist = (getBuylists(priceData, 'cardkingdom', item.foilType));
             
             const timeAgo = formatTimeAgo(item.pricesLastUpdatedAt);
+
+            item._searchIndex = [
+                item.name,
+                setInfo?.name,
+                item.setCode,
+                item.collectorNumber,
+                item.condition,
+                item.foilType,
+                item.tcgplayerId
+            ].filter(Boolean).join(' ').toLowerCase();
                         
             if (itemElement) {
                 itemElement.classList.remove('skeleton');
@@ -225,7 +279,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                 </tbody>
                             </table>
                         </div>                
-                        `;
+                       `;
+                applyInventoryFilter();
             }
         } catch (error) {
             console.error(`Failed to load details for ${item.name}:`, error);
@@ -444,6 +499,7 @@ const addCardToInventory = async (cardData) => {
             if (!response.ok) throw new Error("Failed to delete.");
             document.getElementById(`item-${itemId}`).remove();
             inventory = inventory.filter(item => item.id !== itemId);
+            applyInventoryFilter();
         } catch (error) {
             console.error(error);
             alert("Could not delete item.");
@@ -454,7 +510,17 @@ const addCardToInventory = async (cardData) => {
         try {
             const response = await fetch('/api/inventory');
             if (!response.ok) throw new Error("Could not fetch inventory from server.");
-            inventory = await response.json();
+            inventory = (await response.json()).map(item => ({
+                ...item,
+                _searchIndex: [
+                    item.name,
+                    item.setCode,
+                    item.collectorNumber,
+                    item.condition,
+                    item.foilType,
+                    item.tcgplayerId
+                ].filter(Boolean).join(' ').toLowerCase(),
+            }));
             renderInventory();
         } catch (error) {
             console.error(error);
@@ -473,6 +539,13 @@ const addCardToInventory = async (cardData) => {
     });
 
     exportBtn.addEventListener('click', exportInventoryToTxt);
+
+    if (filterInput) {
+        filterInput.addEventListener('input', (event) => {
+            inventoryFilterTerm = normalizeFilterTerm(event.target.value);
+            applyInventoryFilter();
+        });
+    }
 
     if (exportModalClose) {
         exportModalClose.addEventListener('click', closeExportModal);

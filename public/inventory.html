@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -10,10 +10,17 @@
 </head>
 <body>
     <div class="header">
-        <h1>Inventory Management</h1>
-        <button id="export-inventory-btn" class="action-btn export-btn">Export as TXT</button>
-        <a href="/buylist.html" class="back-button">Buylist Analysis</a>
-        <a href="/" class="back-button">← Back to Home</a>
+        <div class="header-top">
+            <h1>Inventory Management</h1>
+            <div class="header-controls">
+                <button id="export-inventory-btn" class="action-btn export-btn">Export as TXT</button>
+                <a href="/buylist.html" class="back-button">Buylist Analysis</a>
+                <a href="/" class="back-button">&larr; Back to Home</a>
+            </div>
+        </div>
+        <div class="inventory-filter">
+            <input type="search" id="inventory-filter" class="filter-input" placeholder="Filter inventory by name, set, condition..." aria-label="Filter inventory">
+        </div>
     </div>
 
     <div class="add-card-section">
@@ -23,6 +30,8 @@
             <div id="add-card-results"></div>
         </div>
     </div>
+
+    <p id="inventory-filter-empty" class="empty-list-message" hidden>No inventory items match your filter.</p>
 
     <div id="inventory-container">
         </div>
@@ -40,3 +49,4 @@
     <script src="/inventory.js"></script>
 </body>
 </html>
+
