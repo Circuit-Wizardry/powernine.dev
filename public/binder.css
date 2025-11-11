@@ -1,11 +1,3 @@
-:root {
-    --bg-color: #1a1a1a;
-    --surface-color: #2c2c2c;
-    --binder-bg: #222;
-    --text-color: #e0e0e0;
-    --primary-color: #4fd1c5;
-}
-
 body {
     background-color: var(--bg-color);
     color: var(--text-color);
@@ -193,7 +185,7 @@ h1 {
 .modal-quantity-box span,
 .modal-price-box span {
     font-size: 0.9em;
-    color: #aaa;
+    color: var(--muted-color);
     display: block;
 }
 
@@ -204,7 +196,7 @@ h1 {
 }
 
 .list-link {
-    color: #aaa;
+    color: var(--muted-color);
     text-decoration: none;
     font-size: 0.9em;
     transition: color 0.2s;

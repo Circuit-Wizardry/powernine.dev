@@ -98,7 +98,7 @@ export default function(db) {
 
         let browser;
         try {
-            console.log(`🚀 Starting buylist scrape job for: ${cardName} (${setCode} #${collectorNumber})`);
+            console.log(`[buylist] Starting scrape job for ${cardName} (${setCode} #${collectorNumber})`);
 
             // Launch a single browser instance for all scrapes in this job.
             browser = await chromium.launch({ headless: true });
@@ -526,7 +526,10 @@ export default function(db) {
         }
         const listId = randomUUID();
         const content = JSON.stringify(results);
-        const sql = `INSERT INTO imported_lists (id, content, isPermanent) VALUES (?, ?, 0)`;
+        const sql = `
+            INSERT INTO imported_lists (id, content, isPermanent, updatedAt, lastAccessedAt)
+            VALUES (?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `;
         db.run(sql, [listId, content], (err) => {
             if (err) return res.status(500).json({ message: 'Failed to save card list.' });
             res.status(200).json({ listId: listId });
@@ -539,30 +542,255 @@ export default function(db) {
         // GET: Fetches the list content for the frontend
         .get((req, res) => {
             const { listId } = req.params;
-            // UPDATED: Select both content and isPermanent status
-            const sql = `SELECT content, isPermanent FROM imported_lists WHERE id = ?`;
+            const sql = `
+                SELECT content, isPermanent, name, buylistSnapshot, createdAt, updatedAt, lastAccessedAt
+                FROM imported_lists
+                WHERE id = ?
+            `;
 
             db.get(sql, [listId], (err, row) => {
                 if (err) return res.status(500).json({ message: 'Database error.' });
                 if (!row) return res.status(404).json({ message: 'List not found.' });
-                
-                // Send back an object with both pieces of data
+
+                let parsedContent = [];
+                try {
+                    parsedContent = JSON.parse(row.content) || [];
+                } catch {
+                    parsedContent = [];
+                }
+
+                let parsedBuylist = null;
+                if (row.buylistSnapshot) {
+                    try {
+                        parsedBuylist = JSON.parse(row.buylistSnapshot);
+                    } catch (parseErr) {
+                        console.warn(`[lists] Failed to parse buylist snapshot for ${listId}:`, parseErr.message);
+                    }
+                }
+
                 res.json({
-                    content: JSON.parse(row.content),
-                    isPermanent: !!row.isPermanent // Convert 0/1 to false/true
+                    content: parsedContent,
+                    isPermanent: !!row.isPermanent,
+                    name: row.name || null,
+                    buylistSnapshot: parsedBuylist,
+                    createdAt: row.createdAt || null,
+                    updatedAt: row.updatedAt || null,
+                    lastAccessedAt: row.lastAccessedAt || null
                 });
+
+                db.run(
+                    `UPDATE imported_lists SET lastAccessedAt = CURRENT_TIMESTAMP WHERE id = ?`,
+                    [listId],
+                    (updateErr) => {
+                        if (updateErr) {
+                            console.error(`[lists] Failed to stamp lastAccessedAt for ${listId}:`, updateErr.message);
+                        }
+                    }
+                );
             });
-        })
+        });
 
     // --- Endpoint to permanently save a list ---
-    router.post('/list/:listId/save', (req, res) => {
+    router.post('/list/:listId/save', express.json(), (req, res) => {
         const { listId } = req.params;
-        const sql = `UPDATE imported_lists SET isPermanent = 1 WHERE id = ?`;
+        const { name } = req.body || {};
+        const normalizedName = typeof name === 'string' ? name.trim() : '';
+        const finalName = normalizedName.length > 0 ? normalizedName : null;
+
+        const sql = `
+            UPDATE imported_lists
+            SET isPermanent = 1,
+                name = ?,
+                updatedAt = CURRENT_TIMESTAMP,
+                lastAccessedAt = CURRENT_TIMESTAMP
+            WHERE id = ?
+        `;
+
+        db.run(sql, [finalName, listId], function(err) {
+            if (err) return res.status(500).json({ message: 'Database error.' });
+            if (this.changes === 0) return res.status(404).json({ message: 'List not found.' });
+
+            res.status(200).json({
+                message: 'List permanently saved.',
+                name: finalName
+            });
+            log(`[lists] List ${listId} has been permanently saved.`);
+        });
+    });
+
+    // --- Endpoint to rename/update list metadata ---
+    router.put('/list/:listId/name', express.json(), (req, res) => {
+        const { listId } = req.params;
+        const { name } = req.body || {};
+        const normalizedName = typeof name === 'string' ? name.trim() : '';
+        const finalName = normalizedName.length > 0 ? normalizedName : null;
+
+        const sql = `
+            UPDATE imported_lists
+            SET name = ?,
+                updatedAt = CURRENT_TIMESTAMP,
+                lastAccessedAt = CURRENT_TIMESTAMP
+            WHERE id = ?
+        `;
+
+        db.run(sql, [finalName, listId], function(err) {
+            if (err) return res.status(500).json({ message: 'Database error.' });
+            if (this.changes === 0) return res.status(404).json({ message: 'List not found.' });
+
+            res.status(200).json({
+                message: 'List name updated.',
+                name: finalName
+            });
+        });
+    });
+
+    // --- Endpoint to delete a list entirely ---
+    router.delete('/list/:listId', (req, res) => {
+        const { listId } = req.params;
+        const sql = `DELETE FROM imported_lists WHERE id = ?`;
+
         db.run(sql, [listId], function(err) {
             if (err) return res.status(500).json({ message: 'Database error.' });
             if (this.changes === 0) return res.status(404).json({ message: 'List not found.' });
-            res.status(200).json({ message: 'List permanently saved.' });
-            log(`✅ List ${listId} has been permanently saved.`);
+            res.status(204).send();
+        });
+    });
+
+    // --- Endpoint to store a buylist snapshot for a list ---
+    router.post('/list/:listId/buylist-snapshot', express.json(), (req, res) => {
+        const { listId } = req.params;
+        const payload = {
+            savedAt: new Date().toISOString(),
+            ...req.body
+        };
+
+        let serialized;
+        try {
+            serialized = JSON.stringify(payload);
+        } catch (err) {
+            return res.status(400).json({ message: 'Snapshot payload could not be serialized.' });
+        }
+
+        const sql = `
+            UPDATE imported_lists
+            SET buylistSnapshot = ?,
+                updatedAt = CURRENT_TIMESTAMP,
+                lastAccessedAt = CURRENT_TIMESTAMP
+            WHERE id = ?
+        `;
+
+      db.run(sql, [serialized, listId], function(err) {
+          if (err) return res.status(500).json({ message: 'Database error.' });
+          if (this.changes === 0) return res.status(404).json({ message: 'List not found.' });
+
+          res.status(200).json({ message: 'Buylist snapshot saved.' });
+      });
+  });
+
+    router.get('/inventory/buylist-snapshot', (req, res) => {
+        const sql = "SELECT buylistSnapshot FROM inventory_metadata WHERE id = 'inventory'";
+        db.get(sql, [], (err, row) => {
+            if (err) return res.status(500).json({ message: 'Database error.' });
+            if (!row || !row.buylistSnapshot) return res.json({ snapshot: null });
+            try {
+                const parsed = JSON.parse(row.buylistSnapshot);
+                return res.json({ snapshot: parsed });
+            } catch (parseError) {
+                console.error('Failed to parse inventory buylist snapshot:', parseError.message);
+                return res.status(500).json({ message: 'Stored snapshot is invalid JSON.' });
+            }
+        });
+    });
+
+    router.post('/inventory/buylist-snapshot', express.json(), (req, res) => {
+        const payload = {
+            savedAt: new Date().toISOString(),
+            ...req.body
+        };
+
+        let serialized;
+        try {
+            serialized = JSON.stringify(payload);
+        } catch (err) {
+            return res.status(400).json({ message: 'Snapshot payload could not be serialized.' });
+        }
+
+        const sql = `
+            INSERT INTO inventory_metadata (id, buylistSnapshot, updatedAt)
+            VALUES ('inventory', ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(id) DO UPDATE SET
+                buylistSnapshot = excluded.buylistSnapshot,
+                updatedAt = CURRENT_TIMESTAMP
+        `;
+
+        db.run(sql, [serialized], function(err) {
+            if (err) return res.status(500).json({ message: 'Database error.' });
+            res.status(200).json({ message: 'Inventory buylist snapshot saved.' });
+        });
+    });
+
+    // --- Endpoint to browse/search lists ---
+    router.get('/lists', (req, res) => {
+        const { search = '', sort = 'recent', limit = '10' } = req.query;
+        const trimmedSearch = typeof search === 'string' ? search.trim() : '';
+        const limitNumber = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
+
+        const params = [];
+        const whereParts = [];
+
+        if (trimmedSearch) {
+            const likeTerm = `%${trimmedSearch}%`;
+            whereParts.push(`(COALESCE(name, '') LIKE ? OR id LIKE ?)`);
+            params.push(likeTerm, likeTerm);
+        }
+
+        const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+
+        let orderClause = 'ORDER BY COALESCE(lastAccessedAt, updatedAt, createdAt) DESC';
+        switch ((sort || '').toLowerCase()) {
+            case 'name':
+                orderClause = `
+                    ORDER BY
+                        CASE WHEN name IS NULL OR TRIM(name) = '' THEN 1 ELSE 0 END,
+                        LOWER(name),
+                        id
+                `;
+                break;
+            case 'created':
+                orderClause = 'ORDER BY createdAt DESC';
+                break;
+            case 'updated':
+                orderClause = 'ORDER BY COALESCE(updatedAt, createdAt) DESC';
+                break;
+            case 'recent':
+            default:
+                orderClause = 'ORDER BY COALESCE(lastAccessedAt, updatedAt, createdAt) DESC';
+                break;
+        }
+
+        const sql = `
+            SELECT id, name, isPermanent, createdAt, updatedAt, lastAccessedAt
+            FROM imported_lists
+            ${whereClause}
+            ${orderClause}
+            LIMIT ?
+        `;
+
+        params.push(limitNumber);
+
+        db.all(sql, params, (err, rows) => {
+            if (err) return res.status(500).json({ message: 'Database error.' });
+
+            const payload = rows.map((row) => ({
+                id: row.id,
+                name: row.name || null,
+                isPermanent: !!row.isPermanent,
+                createdAt: row.createdAt || null,
+                updatedAt: row.updatedAt || null,
+                lastAccessedAt: row.lastAccessedAt || null
+            }));
+
+            res.json({ lists: payload });
         });
     });
 
@@ -725,7 +953,10 @@ export default function(db) {
         const emptyContent = JSON.stringify([]); // An empty array of cards
 
         // Insert the new list as permanent (isPermanent = 1)
-        const sql = `INSERT INTO imported_lists (id, content, isPermanent) VALUES (?, ?, 1)`;
+        const sql = `
+            INSERT INTO imported_lists (id, content, isPermanent, updatedAt, lastAccessedAt)
+            VALUES (?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `;
         db.run(sql, [listId, emptyContent], (err) => {
             if (err) {
                 console.error("Failed to create new list:", err);
@@ -745,14 +976,25 @@ export default function(db) {
         db.get(getSql, [listId], (err, row) => {
             if (err || !row) return res.status(404).json({ message: 'List not found.' });
             
-            let content = JSON.parse(row.content);
+            let content = [];
+            try {
+                content = JSON.parse(row.content) || [];
+            } catch {
+                content = [];
+            }
             
             // 2. Add the new card to the content array
             content.push({ name, setCode, collectorNumber, foilType, quantity });
             
             // 3. Update the database with the new content
             const newContentJson = JSON.stringify(content);
-            const updateSql = `UPDATE imported_lists SET content = ? WHERE id = ?`;
+            const updateSql = `
+                UPDATE imported_lists
+                SET content = ?,
+                    updatedAt = CURRENT_TIMESTAMP,
+                    lastAccessedAt = CURRENT_TIMESTAMP
+                WHERE id = ?
+            `;
             db.run(updateSql, [newContentJson, listId], function(err) {
                 if (err) return res.status(500).json({ message: 'Failed to update list.' });
                 res.status(200).json({ message: 'Card added successfully.' });

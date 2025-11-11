@@ -21,10 +21,46 @@ document.addEventListener('DOMContentLoaded', () => {
     const exportModalClose = document.getElementById('export-modal-close');
     const filterInput = document.getElementById('inventory-filter');
     const filterMessage = document.getElementById('inventory-filter-empty');
+    const openBuylistModalBtn = document.getElementById('open-buylist-modal');
 
     // --- State ---
     let inventory = [];
     let inventoryFilterTerm = '';
+    let inventoryBuylistSnapshot = null;
+
+    const formatCurrency = (value) => {
+        if (typeof value === 'number' && Number.isFinite(value)) {
+            return `$${value.toFixed(2)}`;
+        }
+        return 'N/A';
+    };
+
+    const getLatestPrice = (priceHistory) => {
+        if (!priceHistory || typeof priceHistory !== 'object' || Object.keys(priceHistory).length === 0) return 0;
+        const latestDate = Object.keys(priceHistory).sort((a, b) => new Date(b) - new Date(a))[0];
+        return priceHistory[latestDate] || 0;
+    };
+
+    const inventoryBuylistModal = window.createBuylistModal({
+        modal: document.getElementById('buylist-modal'),
+        formatCurrency,
+        formatListName: () => 'Inventory',
+        getLatestPrice,
+        saveSnapshot: async (payload) => {
+            const response = await fetch('/api/inventory/buylist-snapshot', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+                const message = await response.text();
+                throw new Error(message || 'Failed to save inventory buylist snapshot.');
+            }
+        },
+        onSnapshotChange: (snapshot) => {
+            inventoryBuylistSnapshot = snapshot;
+        }
+    });
 
     const normalizeFilterTerm = (value = '') => value.toLowerCase().trim();
 
@@ -37,6 +73,17 @@ document.addEventListener('DOMContentLoaded', () => {
         return tokens.every(token => haystack.includes(token));
     };
 
+    const fetchInventoryBuylistSnapshot = async () => {
+        try {
+            const response = await fetch('/api/inventory/buylist-snapshot');
+            if (!response.ok) return null;
+            const payload = await response.json();
+            return payload?.snapshot || null;
+        } catch (error) {
+            console.error('Failed to fetch inventory buylist snapshot:', error);
+            return null;
+        }
+    };
     const applyInventoryFilter = () => {
         if (!inventoryContainer) return;
         const hasInventory = inventory.length > 0;
@@ -64,11 +111,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let isDetailRequestProcessing = false;
 
     const formatPrice = (value) => {
-      // Check if the value is of type 'number' and is not NaN
       if (typeof value === 'number' && !isNaN(value)) {
         return `$${value.toFixed(2)}`;
       }
-      // Otherwise, just return the original value (e.g., "N/A")
       return "N/A";
     };
 
@@ -93,12 +138,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Helper Functions ---
     const calculateBreakevenPrice = (buyPrice, feeRate) => (buyPrice + FLAT_FEE - 1.30) / (1 - feeRate) + 1.25; // Adding $1.25 shipping buffer
     const calculateRecommendedPrice = (scrapedLow, breakevenPrice) => Math.max(scrapedLow || 0, breakevenPrice) * RECOMMENDED_MARKUP;
-    const getLatestPrice = (priceHistory) => {
-        if (!priceHistory || typeof priceHistory !== 'object' || Object.keys(priceHistory).length === 0) return 0;
-        const latestDate = Object.keys(priceHistory).sort((a, b) => new Date(b) - new Date(a))[0];
-        return priceHistory[latestDate] || 0;
-    };
-    
     const getBuylists = (pricesData, vendor, foilType) => {
         // Use optional chaining (?.) to safely navigate the nested object structure.
         // This prevents errors if any intermediate key (like 'paper' or 'buylist') doesn't exist.
@@ -508,9 +547,13 @@ const addCardToInventory = async (cardData) => {
 
     const initializePage = async () => {
         try {
-            const response = await fetch('/api/inventory');
-            if (!response.ok) throw new Error("Could not fetch inventory from server.");
-            inventory = (await response.json()).map(item => ({
+            const [inventoryResponse, snapshot] = await Promise.all([
+                fetch('/api/inventory'),
+                fetchInventoryBuylistSnapshot()
+            ]);
+
+            if (!inventoryResponse.ok) throw new Error("Could not fetch inventory from server.");
+            inventory = (await inventoryResponse.json()).map(item => ({
                 ...item,
                 _searchIndex: [
                     item.name,
@@ -521,6 +564,23 @@ const addCardToInventory = async (cardData) => {
                     item.tcgplayerId
                 ].filter(Boolean).join(' ').toLowerCase(),
             }));
+
+            inventoryBuylistModal.init({
+                contextId: 'inventory',
+                getCards: () => inventory.map((item) => ({
+                    id: item.id,
+                    name: item.name,
+                    setCode: item.setCode,
+                    collectorNumber: item.collectorNumber,
+                    foilType: item.foilType,
+                    quantity: item.quantity,
+                    tcgplayerId: item.tcgplayerId,
+                    imageUrl: item.imageUrl || null
+                })),
+                nameResolver: () => 'Inventory',
+                initialSnapshot: snapshot
+            });
+
             renderInventory();
         } catch (error) {
             console.error(error);
@@ -528,6 +588,7 @@ const addCardToInventory = async (cardData) => {
         }
     };
     
+    // --- Modal Helpers ---
     // --- Event Listeners ---
     new CardSearchWidget({
         input: addCardSearch,
@@ -539,6 +600,12 @@ const addCardToInventory = async (cardData) => {
     });
 
     exportBtn.addEventListener('click', exportInventoryToTxt);
+
+    if (openBuylistModalBtn) {
+        openBuylistModalBtn.addEventListener('click', () => {
+            inventoryBuylistModal.open();
+        });
+    }
 
     if (filterInput) {
         filterInput.addEventListener('input', (event) => {
@@ -581,3 +648,6 @@ const addCardToInventory = async (cardData) => {
 
     initializePage();
 });
+
+
+

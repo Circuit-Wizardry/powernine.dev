@@ -5,11 +5,13 @@
     <meta name="viewport" content="width=device-width,initial-scale=1.0">
     <title>powernine.dev</title>
     <link rel="icon" href="/media/favicon.png" type="image/png">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/theme.css">
+    <link rel="stylesheet" href="/style.css">
     <link rel="stylesheet" href="/card-search.css">
 </head>
 <body>
-    <div class="container" id="search-div">
+    <main class="page-shell">
+        <div class="container" id="search-div">
         <div class="button-container">
             <img src="./media/import-csv.png" class="tab-button" id="import-csv-btn">
             <img src="./media/create-list.png" class="tab-button" id="create-list-btn">
@@ -23,6 +25,31 @@
         <div class="title">powernine.dev</div>
         <p style="text-align: center; margin-top: -2rem; margin-bottom: 1rem; font-size: 1rem; color: gray;">the <strong>free</strong> mtg trading & market analysis tool</p>
         <center><input class="search-bar" id="search-bar" type="text" placeholder="Search..." aria-label="Search"></center>
+        <button id="recent-lists-btn" class="recent-open-button" type="button">View Recent Lists</button>
+        </div>
+    </main>
+
+    <div id="recent-modal" class="recent-modal" role="dialog" aria-modal="true" aria-labelledby="recent-modal-title" aria-hidden="true">
+        <div class="recent-modal-backdrop" data-close="recent-modal"></div>
+        <div class="recent-modal-dialog modal-dialog">
+            <button type="button" id="recent-close-btn" class="recent-modal-close modal-close-btn" data-close="recent-modal" aria-label="Close recent lists">&times;</button>
+            <section id="recent-lists" class="recent-lists">
+                <div class="recent-header">
+                    <h2 id="recent-modal-title">Recently Accessed Lists</h2>
+                    <div class="recent-controls">
+                        <input type="text" id="recent-search" placeholder="Search lists" aria-label="Search lists">
+                        <select id="recent-sort" aria-label="Sort lists">
+                            <option value="recent" selected>Most Recent</option>
+                            <option value="updated">Recently Updated</option>
+                            <option value="name">Name (A - Z)</option>
+                            <option value="created">Newest</option>
+                        </select>
+                    </div>
+                </div>
+                <ul id="recent-list-items" class="recent-list-items"></ul>
+                <p id="recent-empty" class="recent-empty hidden">No saved lists yet. Import or create a list to get started.</p>
+            </section>
+        </div>
     </div>
 
     <div id="import-modal" class="modal-background" style="display: none;">

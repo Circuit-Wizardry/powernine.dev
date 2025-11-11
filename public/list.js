@@ -6,6 +6,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const saveListBtn = document.getElementById('save-list-btn');
     const sortButtons = document.querySelectorAll('.sort-button');
     const buylistAnalysisBtn = document.getElementById('buylist-analysis-btn');
+    const listTitleEl = document.getElementById('list-title');
+    const renameListBtn = document.getElementById('rename-list-btn');
     const addCardSearch = document.getElementById('add-card-search'); // This is for ADDING new cards
     const addCardResults = document.getElementById('add-card-results');
     const totalValueEl = document.getElementById('total-value-amount');
@@ -30,6 +32,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let totalCollectionValue = 0;
     let totalCardKingdomBuylistValue = 0;
     let isListSaved = false;
+    let listName = null;
+    let listBuylistSnapshot = null;
     const pathParts = window.location.pathname.split('/');
     const listId = pathParts[pathParts.length - 1];
 
@@ -56,6 +60,29 @@ document.addEventListener('DOMContentLoaded', () => {
             return `$${value.toFixed(2)}`;
         }
         return 'N/A';
+    };
+
+    const formatListName = (value) => {
+        if (typeof value === 'string') {
+            const trimmed = value.trim();
+            if (trimmed.length > 0) return trimmed;
+        }
+        return '<unnamed list>';
+    };
+
+    const updateListTitle = () => {
+        if (listTitleEl) {
+            listTitleEl.textContent = formatListName(listName);
+        }
+        document.title = `${formatListName(listName)} - Imported Card Collection`;
+    };
+
+    const promptForListNameValue = (initialValue = '') => {
+        const result = window.prompt('Name this list (leave blank for "<unnamed list>"):', initialValue);
+        if (result === null) {
+            return { cancelled: true, value: null };
+        }
+        return { cancelled: false, value: result.trim() };
     };
 
     const hasLiveTcgLow = (card) => typeof card?.tcgLow === 'number' && Number.isFinite(card.tcgLow);
@@ -110,6 +137,67 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     updateSummaryTotals();
+
+    const buylistModal = window.createBuylistModal({
+        modal: document.getElementById('buylist-modal'),
+        formatCurrency,
+        formatListName,
+        getLatestPrice,
+        saveSnapshot: async (payload) => {
+            if (!listId) return;
+            await fetch(`/api/list/${listId}/buylist-snapshot`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        },
+        onSnapshotChange: (snapshot) => {
+            listBuylistSnapshot = snapshot;
+        }
+    });
+
+    if (buylistAnalysisBtn) {
+        buylistAnalysisBtn.addEventListener('click', (event) => {
+            event.preventDefault();
+            buylistModal.open();
+        });
+    }
+
+    if (renameListBtn) {
+        renameListBtn.addEventListener('click', async () => {
+            if (!listId) return;
+            const { cancelled, value } = promptForListNameValue(listName || '');
+            if (cancelled) return;
+
+            renameListBtn.disabled = true;
+            const originalText = renameListBtn.textContent;
+            renameListBtn.textContent = 'Renaming...';
+
+            try {
+                const response = await fetch(`/api/list/${listId}/name`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: value })
+                });
+                if (!response.ok) throw new Error('Rename failed');
+                const payload = await response.json().catch(() => ({}));
+                const nextName = typeof payload.name === 'string' ? payload.name : value;
+                listName = nextName && nextName.length ? nextName : null;
+                updateListTitle();
+                buylistModal.setListNameResolver(() => listName);
+                renameListBtn.textContent = 'Renamed';
+                setTimeout(() => {
+                    renameListBtn.disabled = false;
+                    renameListBtn.textContent = 'Rename';
+                }, 1200);
+            } catch (error) {
+                console.error(error);
+                renameListBtn.textContent = originalText;
+                renameListBtn.disabled = false;
+                alert('Unable to rename this list right now.');
+            }
+        });
+    }
 
     const formatFinishLabel = (finish) => {
         switch (finish) {
@@ -356,6 +444,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const populateCardElement = (cardElement, card) => {
         cardElement.classList.remove('skeleton');
+        cardElement.classList.remove('card-positive', 'card-negative');
         cardElement.innerHTML = '';
 
         const image = document.createElement('img');
@@ -380,6 +469,7 @@ document.addEventListener('DOMContentLoaded', () => {
         info.appendChild(title);
 
         const setDetails = document.createElement('p');
+        setDetails.className = 'card-meta';
         setDetails.textContent = `${card.setName} (#${card.collectorNumber})`;
         info.appendChild(setDetails);
 
@@ -416,7 +506,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const appendPriceRow = (label, value, options = {}) => {
             const row = document.createElement('tr');
             const labelCell = document.createElement('td');
+            labelCell.className = 'vendor-label';
             const valueCell = document.createElement('td');
+            valueCell.className = 'vendor-value';
 
             if (options.href) {
                 const link = document.createElement('a');
@@ -454,6 +546,16 @@ document.addEventListener('DOMContentLoaded', () => {
             : 'Press "Check Live Lows"';
         appendPriceRow('TCG Low', initialLowValue, { id: `tcg-low-${card.id}` });
         appendPriceRow('TCG Low + Ship', initialLowShipValue, { id: `tcg-low-ship-${card.id}` });
+
+        const ckBuylistValue = Number(card.ckBuylistPrice);
+        const marketValue = Number(card.price);
+        if (Number.isFinite(ckBuylistValue) && Number.isFinite(marketValue)) {
+            if (ckBuylistValue >= marketValue) {
+                cardElement.classList.add('card-positive');
+            } else {
+                cardElement.classList.add('card-negative');
+            }
+        }
 
         cardElement.appendChild(priceTable);
 
@@ -666,32 +768,46 @@ document.addEventListener('DOMContentLoaded', () => {
 
             isListSaved = importedCards.isPermanent; // Set state from server
             updateSaveStateUI(); // Update UI
-
-            // Only add the "leave page" warning if the list is NOT already saved
-            if (!isListSaved) {
-                // We already added the 'beforeunload' listener above, but 
-                  // we need to set up the 'click' listener to remove it.
-                saveListBtn.addEventListener('click', async () => {
-                    try {
-                        saveListBtn.disabled = true;
-                        saveListBtn.textContent = 'Saving...';
-                        const response = await fetch(`/api/list/${listId}/save`, { method: 'POST' });
-                        if (response.ok) {
-                            isListSaved = true;
-                            saveListBtn.textContent = 'Saved!';
-                            updateSaveStateUI(); // Hide button and warning
-                            window.removeEventListener('beforeunload', handleUnload); // IMPORTANT
-                        } else {
-                            saveListBtn.textContent = 'Save Failed';
-                            saveListBtn.disabled = false;
-                        }
-                    } catch (error) {
-                        console.error(error);
-                        saveListBtn.textContent = 'Save Failed';
-                        saveListBtn.disabled = false;
-                    }
-                });
+            if (isListSaved) {
+                window.removeEventListener('beforeunload', handleUnload);
             }
+
+            listName = typeof importedCards.name === 'string' ? importedCards.name : null;
+            listBuylistSnapshot = importedCards.buylistSnapshot || null;
+            updateListTitle();
+            buylistModal.setListNameResolver(() => listName);
+
+            saveListBtn.onclick = async () => {
+                if (isListSaved) return;
+                const { cancelled, value } = promptForListNameValue(listName || '');
+                if (cancelled) return;
+
+                saveListBtn.disabled = true;
+                saveListBtn.textContent = 'Saving...';
+
+                try {
+                    const response = await fetch(`/api/list/${listId}/save`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: value })
+                    });
+                    if (!response.ok) throw new Error('Save failed');
+                    const payload = await response.json().catch(() => ({}));
+                    const savedName = typeof payload.name === 'string' ? payload.name : value;
+                    listName = savedName && savedName.length ? savedName : null;
+                    isListSaved = true;
+                    updateListTitle();
+                    buylistModal.setListNameResolver(() => listName);
+                    updateSaveStateUI();
+                    saveListBtn.textContent = 'Saved!';
+                    window.removeEventListener('beforeunload', handleUnload);
+                } catch (error) {
+                    console.error(error);
+                    saveListBtn.textContent = 'Save List';
+                    saveListBtn.disabled = false;
+                    alert('Unable to save this list right now.');
+                }
+            };
 
             if (importedCards.content.length === 0) {
                 document.getElementById('card-list-container').innerHTML = 
@@ -712,7 +828,22 @@ document.addEventListener('DOMContentLoaded', () => {
             }));
             
             switchViewBtn.href = `/binder/${listId}`;
-            buylistAnalysisBtn.href = `/list-buylist/${listId}`;
+
+            buylistModal.init({
+                contextId: listId,
+                getCards: () => allCards.map((card) => ({
+                    id: card.id,
+                    name: card.name,
+                    setCode: card.setCode,
+                    collectorNumber: card.collectorNumber,
+                    foilType: card.foilType,
+                    quantity: card.quantity,
+                    tcgplayerId: card.tcgplayerId,
+                    imageUrl: card.imageUrl || null
+                })),
+                nameResolver: () => listName,
+                initialSnapshot: listBuylistSnapshot
+            });
             
             renderCardList(allCards);
             fetchAllCardDetails();
@@ -881,4 +1012,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     initializePage();
 });
+
+
+
 
