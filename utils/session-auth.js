@@ -43,7 +43,7 @@ const serializeCookie = (name, value, options = {}) => {
 const shouldUseSecureCookies = () => {
     if (process.env.SESSION_COOKIE_SECURE === 'true') return true;
     if (process.env.SESSION_COOKIE_SECURE === 'false') return false;
-    return false;
+    return process.env.NODE_ENV === 'production';
 };
 
 export const createSessionAuth = ({ username, password }) => {
@@ -54,6 +54,19 @@ export const createSessionAuth = ({ username, password }) => {
     const sessions = new Map(); // token -> { username, expiresAt }
     const router = express.Router();
     const secureCookies = shouldUseSecureCookies();
+    const cleanupInterval = setInterval(() => {
+        const now = Date.now();
+        for (const [token, session] of sessions.entries()) {
+            if (session.expiresAt < now) {
+                sessions.delete(token);
+            }
+        }
+    }, Math.min(SESSION_MAX_AGE, 15 * 60 * 1000));
+
+    const disposeCleanup = () => clearInterval(cleanupInterval);
+    process.once('exit', disposeCleanup);
+    process.once('SIGINT', disposeCleanup);
+    process.once('SIGTERM', disposeCleanup);
 
     const setSessionCookie = (res, token) => {
         const cookie = serializeCookie(COOKIE_NAME, token, {

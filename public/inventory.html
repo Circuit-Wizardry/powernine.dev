@@ -14,21 +14,15 @@
         <div class="header-top">
             <h1>Inventory Management</h1>
             <div class="header-controls">
+                <button id="open-add-inventory-btn" class="action-btn primary-btn" type="button">Add Inventory</button>
                 <button id="export-inventory-btn" class="action-btn export-btn">Export as TXT</button>
-                <button id="open-buylist-modal" class="secondary-btn" type="button">Buylist Analysis</button>
-                <a href="/" class="back-button">&larr; Back to Home</a>
-            </div>
-        </div>
-        <div class="inventory-filter">
-            <input type="search" id="inventory-filter" class="filter-input" placeholder="Filter inventory by name, set, condition..." aria-label="Filter inventory">
+                <button id="export-manapool-btn" class="secondary-btn" type="button">Export to ManaPool</button>
+            <button id="open-buylist-modal" class="secondary-btn" type="button">Buylist Analysis</button>
+            <a href="/" class="back-button">&larr; Back to Home</a>
         </div>
     </div>
-
-    <div class="add-card-section">
-        <h2>Add to Inventory</h2>
-        <div class="add-card-form">
-            <input type="text" id="add-card-search" class="search-input" placeholder="Search for a card to add...">
-            <div id="add-card-results"></div>
+        <div class="inventory-filter">
+            <input type="search" id="inventory-filter" class="filter-input" placeholder="Filter inventory by name, set, condition..." aria-label="Filter inventory">
         </div>
     </div>
 
@@ -43,6 +37,34 @@
             <h2>Inventory TXT Export</h2>
             <p>Press <strong>Ctrl + A</strong>, then <strong>Ctrl + C</strong> (or use your device's copy controls) to copy the text below.</p>
             <textarea id="export-modal-text" readonly></textarea>
+        </div>
+    </div>
+
+    <div id="manapool-export-modal" class="export-modal">
+        <div class="export-modal__content manapool-modal">
+            <button type="button" id="manapool-modal-close" class="export-modal__close" aria-label="Close ManaPool export preview">&times;</button>
+            <h2>ManaPool CSV Preview</h2>
+            <p>Review the rows below. Purchase price uses TCG Market &times; 10% markup.</p>
+            <div class="manapool-table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Foil</th>
+                            <th>Qty</th>
+                            <th>Scryfall ID</th>
+                            <th>Purchase Price</th>
+                            <th>Condition</th>
+                            <th>Language</th>
+                        </tr>
+                    </thead>
+                    <tbody id="manapool-table-body">
+                        <tr><td colspan="6" class="empty">Loading…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="modal-actions">
+                <button type="button" id="manapool-download-btn" class="action-btn">Download CSV</button>
+            </div>
         </div>
     </div>
 
@@ -88,6 +110,128 @@
             <footer class="buylist-modal-footer">
                 <span id="buylist-snapshot-status" class="buylist-snapshot-status"></span>
             </footer>
+        </div>
+    </div>
+
+    <div id="edit-inventory-modal" class="inventory-modal hidden" aria-hidden="true">
+        <div class="inventory-modal-backdrop" data-dismiss="edit-inventory-modal"></div>
+        <div class="inventory-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="edit-inventory-modal-title">
+            <header class="inventory-modal-header">
+                <div>
+                    <h2 id="edit-inventory-modal-title">Edit Inventory Item</h2>
+                    <p class="inventory-modal-subtitle">Update condition, foil treatment, or purchase price.</p>
+                </div>
+                <button type="button" class="modal-close-btn" id="edit-inventory-close-btn" aria-label="Close edit inventory modal">&times;</button>
+            </header>
+            <form id="edit-inventory-form" class="inventory-modal-content">
+                <label>
+                    Condition
+                    <select id="edit-condition">
+                        <option value="NM">Mint / NM</option>
+                        <option value="LP">Near Mint</option>
+                        <option value="MP">Moderately Played</option>
+                        <option value="HP">Heavily Played</option>
+                        <option value="DMG">Damaged</option>
+                    </select>
+                </label>
+                <label>
+                    Foiling
+                    <select id="edit-foil">
+                        <option value="normal">Non-foil</option>
+                        <option value="foil">Foil</option>
+                        <option value="etched">Etched</option>
+                        <option value="glossy">Glossy</option>
+                    </select>
+                </label>
+                <label>
+                    Purchase Price ($)
+                    <input type="number" id="edit-price" step="0.01" min="0" placeholder="0.00">
+                </label>
+                <div class="modal-actions">
+                    <button type="button" id="edit-cancel-btn" class="secondary-btn">Cancel</button>
+                    <button type="submit" class="primary-btn">Save Changes</button>
+                </div>
+                <p id="edit-modal-error" class="error-message" hidden></p>
+            </form>
+        </div>
+    </div>
+
+    <div id="add-inventory-modal" class="inventory-modal hidden" aria-hidden="true">
+        <div class="inventory-modal-backdrop" data-dismiss="add-inventory-modal"></div>
+        <div class="inventory-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="add-inventory-modal-title">
+            <header class="inventory-modal-header">
+                <div>
+                    <h2 id="add-inventory-modal-title">Add Inventory Items</h2>
+                    <p class="inventory-modal-subtitle">Search for a card, choose the printing, and stage one or more entries before saving.</p>
+                </div>
+                <button type="button" class="modal-close-btn" id="add-inventory-close-btn" aria-label="Close inventory add modal">&times;</button>
+            </header>
+
+            <div class="inventory-modal-content">
+                <section class="inventory-modal-search">
+                    <label for="modal-card-search">Find a card</label>
+                    <input type="text" id="modal-card-search" placeholder="Search by card name..." autocomplete="off">
+                </section>
+
+                <section id="modal-card-details" class="inventory-modal-details hidden">
+                    <div class="inventory-modal-selected">
+                        <img id="modal-card-image" alt="Card artwork">
+                        <div>
+                            <h3 id="modal-card-name"></h3>
+                            <p id="modal-card-set"></p>
+                        </div>
+                    </div>
+
+                    <div class="inventory-modal-form">
+                        <label>
+                            Printing
+                            <select id="modal-printing-select"></select>
+                        </label>
+                        <label>
+                            Finish
+                            <select id="modal-finish-select"></select>
+                        </label>
+                        <label>
+                            Condition
+                            <select id="modal-condition">
+                                <option value="NM">Near Mint (NM)</option>
+                                <option value="LP">Lightly Played (LP)</option>
+                                <option value="MP">Moderately Played (MP)</option>
+                                <option value="HP">Heavily Played (HP)</option>
+                                <option value="DMG">Damaged (DMG)</option>
+                            </select>
+                        </label>
+                        <label>
+                            Quantity
+                            <input type="number" id="modal-quantity" min="1" value="1">
+                        </label>
+                        <label class="price-input-group">
+                            Price Paid
+                            <div class="price-input-row">
+                                <input type="number" id="modal-price" min="0" step="0.01" placeholder="0.00">
+                                <label class="price-unknown">
+                                    <input type="checkbox" id="modal-price-unknown">
+                                    Unknown
+                                </label>
+                            </div>
+                        </label>
+                        <button type="button" id="modal-add-item-btn" class="primary-btn">Add to Queue</button>
+                    </div>
+                </section>
+
+                <section class="inventory-modal-staged">
+                    <div class="staged-header">
+                        <h3>Staged Items</h3>
+                        <button type="button" id="modal-clear-staged-btn" class="text-btn">Clear All</button>
+                    </div>
+                    <ul id="modal-staged-list" class="staged-list"></ul>
+                    <p id="modal-staged-empty" class="staged-empty">No items staged yet.</p>
+                    <div class="staged-actions">
+                        <button type="button" id="modal-save-items-btn" class="primary-btn" disabled>Add Items to Inventory</button>
+                        <span id="modal-save-status" class="save-status"></span>
+                    </div>
+                </section>
+            </div>
         </div>
     </div>
 

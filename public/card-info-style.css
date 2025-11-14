@@ -85,17 +85,15 @@ body {
 }
 
 .printings-table tbody tr {
-    cursor: pointer;
     transition: background-color 0.2s;
 }
 
-.printings-table tbody tr:hover {
-    background-color: rgba(95,108,153,0.28);
+.printings-table tbody tr:not(.current-printing) {
+    cursor: pointer;
 }
 
-.printings-table .current-printing {
-    background-color: #004455; /* A highlight color */
-    font-weight: bold;
+.printings-table tbody tr:not(.current-printing):hover {
+    background-color: rgba(95,108,153,0.18);
 }
 
 .right-panel {
@@ -167,4 +165,105 @@ body {
     color: var(--muted-strong)ccc;
     cursor: not-allowed;
     transform: none;
+}
+
+.printings-table-wrapper {
+    width: 100%;
+    margin-top: 24px;
+}
+
+.printings-table-wrapper .table-header-container {
+    margin-bottom: 8px;
+}
+
+.printings-table small {
+    display: block;
+    color: var(--muted-color, #a0aec0);
+    font-size: 0.8rem;
+    letter-spacing: 0.04em;
+}
+
+.printings-table .current-printing {
+    background: rgba(96, 165, 250, 0.08);
+}
+
+.printings-table .current-printing strong {
+    color: var(--primary-color, #60a5fa);
+}
+
+.printings-table td:last-child {
+    text-align: right;
+}
+
+.printing-code {
+    font-size: 1rem;
+    letter-spacing: 0.05em;
+}
+
+.price-cell {
+    color: #fcb045;
+    font-weight: 600;
+}
+
+.printing-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    background: rgba(96, 165, 250, 0.15);
+    color: var(--primary-color, #60a5fa);
+    font-weight: 600;
+}
+
+.global-home-link {
+    position: fixed;
+    top: 18px;
+    left: 18px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--primary-color);
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border: 1px solid rgba(96, 165, 250, 0.45);
+    border-radius: 999px;
+    padding: 4px 12px;
+    line-height: 1;
+    backdrop-filter: blur(6px);
+    background: rgba(7, 10, 22, 0.65);
+    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+    z-index: 2100;
+}
+
+.global-home-link:hover {
+    background: rgba(96, 165, 250, 0.18);
+    border-color: rgba(96, 165, 250, 0.65);
+}
+
+#printing-preview {
+    position: fixed;
+    pointer-events: none;
+    padding: 6px;
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+    display: none;
+    z-index: 2000;
+}
+
+#printing-preview.visible {
+    display: block;
+}
+
+#printing-preview img {
+    width: 220px;
+    height: auto;
+    border-radius: 8px;
+    display: block;
 }

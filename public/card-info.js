@@ -4,10 +4,54 @@ document.addEventListener('DOMContentLoaded', async () => {
     let scryfallCardData; // Variable to hold card data for event listeners
 
     // --- Helper Functions ---
-    const formatPrice = (price) => price ? `$${price.toFixed(2)}` : 'N/A';
+    const formatPrice = (price) => (typeof price === 'number' && Number.isFinite(price)) ? `$${price.toFixed(2)}` : 'N/A';
+    const formatUsdString = (value) => {
+        if (typeof value === 'number') return formatPrice(value);
+        const parsed = Number.parseFloat(value);
+        return Number.isFinite(parsed) ? formatPrice(parsed) : 'N/A';
+    };
     const capitalize = (s) => s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
     const formatManaCost = (cost) => cost ? cost.replace(/\{/g, '').replace(/\}/g, '') : '';
     const formatOracleText = (text) => text ? text.replace(/\n/g, '<br>') : 'This card has no oracle text.';
+    const formatReleaseDate = (dateString) => {
+        if (!dateString) return 'Date unknown';
+        const date = new Date(dateString);
+        if (Number.isNaN(date.getTime())) return 'Date unknown';
+        return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    };
+    const getPrintingImage = (printing = {}) => {
+        if (printing.image_uris?.small) return printing.image_uris.small;
+        if (Array.isArray(printing.card_faces) && printing.card_faces[0]?.image_uris?.small) {
+            return printing.card_faces[0].image_uris.small;
+        }
+        return null;
+    };
+
+    // --- Hover Preview Setup ---
+    const previewEl = document.createElement('div');
+    previewEl.id = 'printing-preview';
+    previewEl.innerHTML = '<img alt="Card preview">';
+    document.body.appendChild(previewEl);
+    const previewImg = previewEl.querySelector('img');
+
+    const updatePreviewPosition = (event) => {
+        const offset = 18;
+        const x = event.clientX + offset;
+        const y = event.clientY + offset;
+        previewEl.style.left = `${x}px`;
+        previewEl.style.top = `${y}px`;
+    };
+
+    const showPrintingPreview = (event, src) => {
+        if (!src) return;
+        previewImg.src = src;
+        updatePreviewPosition(event);
+        previewEl.classList.add('visible');
+    };
+
+    const hidePrintingPreview = () => {
+        previewEl.classList.remove('visible');
+    };
     
     /**
      * Finds the most recent price from a price history object.
@@ -158,6 +202,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 
+    let homeLink = document.querySelector('.global-home-link');
+    if (!homeLink) {
+        homeLink = document.createElement('a');
+        homeLink.href = '/';
+        homeLink.className = 'global-home-link';
+        homeLink.textContent = '← Back to Home';
+        document.body.appendChild(homeLink);
+    }
+
     try {
         // 1. Get card identifiers from the URL path
         const pathParts = window.location.pathname.split('/').filter(p => p);
@@ -176,6 +229,24 @@ document.addEventListener('DOMContentLoaded', async () => {
             <div class="left-panel">
                 <img src="${scryfallCardData.image_uris?.large || ''}" alt="Card Image" class="card-image">
                 <div class="oracle-text">${formatOracleText(scryfallCardData.oracle_text)}</div>
+                <div class="printings-table-wrapper">
+                    <div class="table-header-container">
+                        <h3 class="table-header">printings</h3>
+                    </div>
+                    <table class="printings-table" id="printings-table">
+                        <thead>
+                            <tr>
+                                <th>printing</th>
+                                <th>release</th>
+                                <th>non-foil</th>
+                                <th>foil</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="4">Loading printings…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
             <div class="right-panel">
                 <h2 class="card-name">${scryfallCardData.name}</h2>
@@ -198,8 +269,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <thead><tr><th>vendor</th><th>normal</th><th>foil</th></tr></thead>
                     <tbody></tbody>
                 </table>
-                
-                <h3 class="table-header">price history</h3>
+
+                <div class="table-header-container">
+                    <h3 class="table-header">price history</h3>
+                </div>
                 <canvas id="priceChart"></canvas>
             </div>
         `;
@@ -208,6 +281,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // 4. Attach event listeners now that the buttons exist in the DOM
         document.getElementById('scrape-lows-btn').addEventListener('click', handleScrapeLows);
         document.getElementById('scrape-buylists-btn').addEventListener('click', handleScrapeBuylists);
+        const printingsTableBody = document.getElementById('printings-table')?.querySelector('tbody');
 
         // 5. Fetch all price data from YOUR server's unified API
         try {
@@ -270,78 +344,87 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 });
             }
-             if (buylistVendorsFound === 0) {
+            if (buylistVendorsFound === 0) {
                 buylistPricesTableBody.innerHTML = '<tr><td colspan="3">no buylist price data available.</td></tr>';
             }
 
+            const priceChartCanvas = document.getElementById('priceChart');
+            if (priceChartCanvas && window.Chart) {
+                const vendorsToChart = [
+                    { name: 'TCGPlayer', path: priceData?.paper?.tcgplayer?.retail?.normal, color: 'rgba(75, 192, 192, 1)' },
+                    { name: 'Card Kingdom', path: priceData?.paper?.cardkingdom?.retail?.normal, color: 'rgba(255, 99, 132, 1)' },
+                    { name: 'Cardmarket', path: priceData?.paper?.cardmarket?.retail?.normal, color: 'rgba(54, 162, 235, 1)' }
+                ];
 
-            // --- Populate Multi-Vendor Price History Chart ---
-            const vendorsToChart = [
-                { name: 'TCGPlayer', path: priceData?.paper?.tcgplayer?.retail?.normal, color: 'rgba(75, 192, 192, 1)' },
-                { name: 'Card Kingdom', path: priceData?.paper?.cardkingdom?.retail?.normal, color: 'rgba(255, 99, 132, 1)' },
-                { name: 'Cardmarket', path: priceData?.paper?.cardmarket?.retail?.normal, color: 'rgba(54, 162, 235, 1)' }
-            ];
-            
-            const allDates = new Set();
-            const validVendorHistories = [];
+                const allDates = new Set();
+                const validVendorHistories = [];
 
-            vendorsToChart.forEach(vendor => {
-                const history = vendor.path;
-                if (history && Object.keys(history).length > 0) {
-                    validVendorHistories.push({ ...vendor, data: history });
-                    Object.keys(history).forEach(date => allDates.add(date));
-                }
-            });
-
-            if (validVendorHistories.length > 0) {
-                const chartLabels = Array.from(allDates).sort((a, b) => new Date(a) - new Date(b));
-                const datasets = [];
-
-                validVendorHistories.forEach(vendor => {
-                    const pricePoints = [];
-                    let lastKnownPrice = null;
-                    chartLabels.forEach(date => {
-                        if (vendor.data[date] !== undefined) {
-                            lastKnownPrice = vendor.data[date];
-                        }
-                        pricePoints.push(lastKnownPrice);
-                    });
-
-                    datasets.push({
-                        label: `${vendor.name} Price`,
-                        data: pricePoints,
-                        borderColor: vendor.color,
-                        backgroundColor: vendor.color.replace('1)', '0.2)'),
-                        tension: 0.1,
-                        fill: false,
-                        spanGaps: true,
-                    });
+                vendorsToChart.forEach(vendor => {
+                    const history = vendor.path;
+                    if (history && Object.keys(history).length > 0) {
+                        validVendorHistories.push({ ...vendor, data: history });
+                        Object.keys(history).forEach(date => allDates.add(date));
+                    }
                 });
-                
-                const ctx = document.getElementById('priceChart').getContext('2d');
-                new Chart(ctx, {
-                    type: 'line',
-                    data: { labels: chartLabels, datasets: datasets },
-                    options: {
-                        scales: {
-                            y: {
-                                beginAtZero: false,
-                                ticks: { callback: (value) => '$' + value.toFixed(2) }
+
+                if (validVendorHistories.length > 0) {
+                    const chartLabels = Array.from(allDates).sort((a, b) => new Date(a) - new Date(b));
+                    const datasets = [];
+
+                    validVendorHistories.forEach(vendor => {
+                        const pricePoints = [];
+                        let lastKnownPrice = null;
+                        chartLabels.forEach(date => {
+                            if (vendor.data[date] !== undefined) {
+                                lastKnownPrice = vendor.data[date];
                             }
-                        },
-                        interaction: { intersect: false, mode: 'index' },
-                        plugins: {
-                            tooltip: {
-                                callbacks: {
-                                    label: (context) => `${context.dataset.label}: ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(context.parsed.y)}`
+                            pricePoints.push(lastKnownPrice);
+                        });
+
+                        datasets.push({
+                            label: `${vendor.name}`,
+                            data: pricePoints,
+                            borderColor: vendor.color,
+                            backgroundColor: vendor.color.replace('1)', '0.15)'),
+                            tension: 0.2,
+                            fill: false,
+                            spanGaps: true,
+                        });
+                    });
+
+                    new Chart(priceChartCanvas.getContext('2d'), {
+                        type: 'line',
+                        data: { labels: chartLabels, datasets },
+                        options: {
+                            scales: {
+                                y: {
+                                    beginAtZero: false,
+                                    ticks: { callback: (value) => `$${Number(value).toFixed(2)}` }
+                                },
+                                x: {
+                                    ticks: { color: '#d1d5db' }
+                                }
+                            },
+                            interaction: { intersect: false, mode: 'index' },
+                            plugins: {
+                                tooltip: {
+                                    callbacks: {
+                                        label: (context) => `${context.dataset.label}: ${formatPrice(context.parsed.y)}`
+                                    }
+                                },
+                                legend: {
+                                    labels: { color: '#e2e8f0' }
                                 }
                             }
                         }
-                    }
-                });
-            } else {
-                document.getElementById('priceChart').style.display = 'none';
+                    });
+                } else {
+                    priceChartCanvas.style.display = 'none';
+                }
+            } else if (priceChartCanvas) {
+                priceChartCanvas.style.display = 'none';
             }
+
 
         } catch (priceError) {
             console.error('Price fetch error:', priceError);
@@ -350,6 +433,99 @@ document.addEventListener('DOMContentLoaded', async () => {
              const buylistPricesTable = document.getElementById('buylistPricesTable');
             if (buylistPricesTable) buylistPricesTable.querySelector('tbody').innerHTML = `<tr><td colspan="3">${priceError.message}</td></tr>`;
         }
+
+        const renderPrintingsTable = (printings) => {
+            if (!printingsTableBody) return;
+            if (!Array.isArray(printings) || printings.length === 0) {
+                printingsTableBody.innerHTML = '<tr><td colspan="4">No additional printings available.</td></tr>';
+                return;
+            }
+
+            const currentSetCode = setCode.toLowerCase();
+            const currentNumber = String(collectorNumber).toLowerCase();
+
+            const sorted = [...printings]
+                .filter(printing => printing && printing.set && printing.collector_number)
+                .sort((a, b) => {
+                    const dateA = new Date(a.released_at || a.releaseDate || 0);
+                    const dateB = new Date(b.released_at || b.releaseDate || 0);
+                    return dateB - dateA;
+                });
+
+            if (sorted.length === 0) {
+                printingsTableBody.innerHTML = '<tr><td colspan="4">No additional printings available.</td></tr>';
+                return;
+            }
+
+            printingsTableBody.innerHTML = '';
+
+            sorted.forEach(printing => {
+                const isCurrent = printing.set?.toLowerCase() === currentSetCode &&
+                    String(printing.collector_number).toLowerCase() === currentNumber;
+                const foilPrice = printing.prices?.usd_foil ?? printing.prices?.usd_etched ?? null;
+                const codeLabel = `[${printing.set?.toUpperCase() || '???'}] #${printing.collector_number}`;
+                const imageSrc = getPrintingImage(printing) || scryfallCardData.image_uris?.small || scryfallCardData.image_uris?.normal || '';
+
+                const row = document.createElement('tr');
+                row.className = `printing-row${isCurrent ? ' current-printing' : ''}`;
+                row.dataset.set = printing.set || '';
+                row.dataset.number = printing.collector_number || '';
+                if (imageSrc) {
+                    row.dataset.image = imageSrc;
+                }
+
+                row.innerHTML = `
+                    <td>
+                        <strong class="printing-code">${codeLabel}</strong>
+                        ${isCurrent ? '<span class="printing-pill">Viewing</span>' : ''}
+                    </td>
+                    <td>${formatReleaseDate(printing.released_at || printing.releaseDate)}</td>
+                    <td class="price-cell">${formatUsdString(printing.prices?.usd)}</td>
+                    <td class="price-cell">${formatUsdString(foilPrice)}</td>
+                `;
+
+                if (!isCurrent) {
+                    row.addEventListener('click', () => {
+                        const targetSet = row.dataset.set;
+                        const targetNumber = row.dataset.number;
+                        if (targetSet && targetNumber) {
+                            window.location.href = `/cards/${targetSet}/${targetNumber}`;
+                        }
+                    });
+                }
+
+                row.addEventListener('mouseenter', (event) => {
+                    const image = row.dataset.image;
+                    if (image) {
+                        showPrintingPreview(event, image);
+                    }
+                });
+
+                row.addEventListener('mousemove', (event) => {
+                    updatePreviewPosition(event);
+                });
+
+                row.addEventListener('mouseleave', hidePrintingPreview);
+
+                printingsTableBody.appendChild(row);
+            });
+        };
+
+        const loadPrintingsTable = async () => {
+            if (!printingsTableBody || !scryfallCardData?.name) return;
+            printingsTableBody.innerHTML = '<tr><td colspan="4">Loading printings…</td></tr>';
+            try {
+                const response = await fetch(`/api/printings/${encodeURIComponent(scryfallCardData.name)}`);
+                if (!response.ok) throw new Error('Could not load printings for this card.');
+                const printings = await response.json();
+                renderPrintingsTable(printings);
+            } catch (printingError) {
+                console.error('Printings fetch error:', printingError);
+                printingsTableBody.innerHTML = `<tr><td colspan="4">${printingError.message}</td></tr>`;
+            }
+        };
+
+        loadPrintingsTable();
 
     } catch (error) {
         console.error('Failed to load card page:', error);

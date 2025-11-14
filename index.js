@@ -7,11 +7,11 @@ import { exec } from 'child_process';
 import apiRoutes from './utils/api.js';
 import 'dotenv/config';
 import cors from 'cors';
-import multer from 'multer';
 import fs from 'fs';
 import { initializeCardNameCache } from './utils/card-data.js';
 import { startDynDnsUpdater } from './utils/dyn-dns.js';
 import { createSessionAuth } from './utils/session-auth.js';
+import { setWebhookUrl } from './discord.js';
 
 // --- Workaround for __dirname in ES Modules ---
 const __filename = fileURLToPath(import.meta.url);
@@ -22,6 +22,13 @@ const PORT = process.env.PORT || 3000;
 
 const APP_USER = process.env.APP_USER;
 const APP_PASSWORD = process.env.APP_PASSWORD;
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
+
+if (DISCORD_WEBHOOK_URL) {
+      setWebhookUrl(DISCORD_WEBHOOK_URL);
+} else {
+      console.warn('[discord] DISCORD_WEBHOOK_URL is not configured. Discord logging is disabled.');
+}
 
 if (!APP_USER || !APP_PASSWORD) {
       throw new Error('APP_USER and APP_PASSWORD environment variables must be set.');
@@ -44,8 +51,17 @@ app.use(sessionAuth.attachSession);
 app.use('/login', sessionAuth.loginRouter);
 app.use('/logout', sessionAuth.logoutRouter);
 
+const PUBLIC_PATH_PREFIXES = ['/login', '/logout'];
+const isPublicPath = (req) => {
+      const pathname = req.path || req.url || '';
+      return PUBLIC_PATH_PREFIXES.some(prefix => pathname.startsWith(prefix));
+};
+
 app.use((req, res, next) => {
       if (req.method === 'OPTIONS') {
+            return next();
+      }
+      if (isPublicPath(req)) {
             return next();
       }
       return sessionAuth.requireAuth(req, res, next);
@@ -67,7 +83,11 @@ const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READWRITE | sqlite3.OPEN_C
                         CREATE TABLE IF NOT EXISTS imported_lists (
                               id TEXT PRIMARY KEY,
                               content TEXT NOT NULL,
+                              name TEXT,
                               createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                              updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                              lastAccessedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                              buylistSnapshot TEXT,
                               isPermanent BOOLEAN DEFAULT 0
                         )
                   `);
@@ -81,9 +101,11 @@ const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READWRITE | sqlite3.OPEN_C
                               pricePaid REAL NOT NULL,
                               quantity INTEGER NOT NULL,
                               tcgplayerId TEXT,
+                              scryfallId TEXT,
                               createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
                               tcgLow REAL,
                               manaPoolLow REAL,
+                              tcgLowPlusShipping REAL,
                               pricesLastUpdatedAt DATETIME,
                               
                               -- NEW COLUMN --
@@ -96,6 +118,7 @@ const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READWRITE | sqlite3.OPEN_C
                               soldAt DATETIME DEFAULT CURRENT_TIMESTAMP,
                               platform TEXT NOT NULL,
                               shippingCost REAL NOT NULL,
+                              packagingCost REAL NOT NULL DEFAULT 0,
                               totalSalePrice REAL NOT NULL,
                               netProfit REAL NOT NULL,
                               packingSlipPath TEXT
@@ -113,12 +136,44 @@ const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READWRITE | sqlite3.OPEN_C
                               FOREIGN KEY (inventoryId) REFERENCES inventory (id)
                         )
                   `);
-
+                  db.run(`
+                        CREATE TABLE IF NOT EXISTS inventory_metadata (
+                              id TEXT PRIMARY KEY,
+                              buylistSnapshot TEXT,
+                              updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+                        )
+                  `);
 
                   cleanupTemporaryLists();
+                  ensureColumn(db, 'imported_lists', 'name', 'TEXT');
+                  ensureColumn(db, 'imported_lists', 'updatedAt', 'DATETIME DEFAULT CURRENT_TIMESTAMP');
+                  ensureColumn(db, 'imported_lists', 'lastAccessedAt', 'DATETIME DEFAULT CURRENT_TIMESTAMP');
+                  ensureColumn(db, 'imported_lists', 'buylistSnapshot', 'TEXT');
+                  ensureColumn(db, 'inventory', 'scryfallId', 'TEXT');
+                  ensureColumn(db, 'inventory', 'tcgLowPlusShipping', 'REAL');
+                  ensureColumn(db, 'transactions', 'packagingCost', 'REAL DEFAULT 0');
             }
       }
 );
+
+function ensureColumn(database, table, columnName, definition) {
+      database.all(`PRAGMA table_info(${table})`, (err, rows) => {
+            if (err) {
+                  console.error(`[db] Failed to inspect ${table}:`, err.message);
+                  return;
+            }
+            const hasColumn = rows.some(row => row.name === columnName);
+            if (!hasColumn) {
+                  database.run(`ALTER TABLE ${table} ADD COLUMN ${columnName} ${definition}`, (alterErr) => {
+                        if (alterErr) {
+                              console.error(`[db] Failed adding ${columnName} to ${table}:`, alterErr.message);
+                        } else {
+                              console.log(`[db] Added missing column ${columnName} to ${table}.`);
+                        }
+                  });
+            }
+      });
+}
 
 
 /**
@@ -140,16 +195,16 @@ function cleanupTemporaryLists() {
       });
 }
 
-const uploadDir = './private/uploads';
+const uploadDir = path.join(__dirname, 'private', 'uploads');
 if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
 }
 
 // --- Middleware & API Routes ---
-app.use(express.static(path.join(__dirname, 'public')));
 initializeCardNameCache();
 startDynDnsUpdater();
-app.use('/api', apiRoutes(db));
+app.use('/api', apiRoutes(db, { uploadRoot: uploadDir }));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // --- Page-Serving Routes ---
 app.get('/cards/:set/:number', (req, res) => res.sendFile(path.join(__dirname, 'public', 'card-info.html')));

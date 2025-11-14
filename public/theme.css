@@ -1,21 +1,25 @@
 :root {
-    --bg-color: #070b17;
-    --surface-color: rgba(19, 24, 38, 0.92);
-    --surface-alt: rgba(26, 32, 52, 0.88);
-    --surface-soft: rgba(39, 48, 77, 0.32);
-    --text-color: #f1f5ff;
-    --muted-color: #9aa6d1;
-    --muted-strong: #c3cae6;
-    --primary-color: #60a5fa;
+    --bg-color: #040715;
+    --surface-color: rgba(10, 14, 30, 0.96);
+    --surface-alt: rgba(16, 21, 40, 0.9);
+    --surface-soft: rgba(148, 163, 184, 0.18);
+    --text-color: #f6f7ff;
+    --muted-color: #a0aec0;
+    --muted-strong: #dbe4ff;
+    --primary-color: #8b5cf6;
+    --primary-bright: #22d3ee;
     --positive-color: #4ade80;
-    --negative-color: #f87171;
-    --warning-color: #fbbf24;
-    --danger-color: #f87171;
-    --border-color: rgba(99, 110, 155, 0.28);
-    --card-shadow: 0 24px 48px rgba(5, 10, 22, 0.45);
-    --transition-duration: 0.2s;
+    --negative-color: #fb7185;
+    --warning-color: #fcbf49;
+    --danger-color: #fb7185;
+    --border-color: rgba(148, 163, 184, 0.35);
+    --card-shadow: 0 30px 60px rgba(2, 6, 23, 0.55);
+    --panel-glow: rgba(124, 58, 237, 0.32);
+    --transition-duration: 0.25s;
     --font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     --font-family-mono: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', monospace;
+    --button-gradient-start: #7c3aed;
+    --button-gradient-end: #0ea5e9;
 }
 
 *,
@@ -27,7 +31,10 @@
 body {
     margin: 0;
     min-height: 100vh;
-    background: radial-gradient(120% 120% at 50% 0%, #13203d 0%, #080d1b 50%, #030610 100%);
+    background:
+        radial-gradient(circle at 3% 15%, rgba(124, 58, 237, 0.35), transparent 42%),
+        radial-gradient(circle at 80% 0%, rgba(34, 211, 238, 0.22), transparent 46%),
+        radial-gradient(120% 120% at 50% 0%, #0b1227 0%, #050812 60%, #02040a 100%);
     color: var(--text-color);
     font-family: var(--font-family-base);
     line-height: 1.6;
@@ -44,7 +51,7 @@ a {
 }
 
 a:hover {
-    color: rgba(96, 165, 250, 0.75);
+    color: var(--primary-bright);
 }
 
 .page-shell {
@@ -56,9 +63,24 @@ a:hover {
 .page-section {
     background: var(--surface-color);
     border-radius: 24px;
-    border: 1px solid var(--border-color);
+    border: 1px solid rgba(148, 163, 184, 0.15);
     box-shadow: var(--card-shadow);
     padding: 24px;
+    position: relative;
+    overflow: hidden;
+}
+
+.page-section::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at top right, var(--panel-glow), transparent 55%);
+    pointer-events: none;
+    opacity: 0.65;
+}
+
+button {
+    font-family: inherit;
 }
 
 .btn,
@@ -73,12 +95,13 @@ a:hover {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
+    gap: 8px;
     font-weight: 600;
-    letter-spacing: 0.04em;
-    padding: 12px 20px;
-    border-radius: 999px;
-    border: 1px solid transparent;
+    letter-spacing: 0.02em;
+    font-size: 0.95rem;
+    padding: 12px 22px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
     cursor: pointer;
     transition: transform 0.18s ease, box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
     text-decoration: none;
@@ -90,10 +113,10 @@ a:hover {
 .view-button,
 .action-btn,
 .recent-open-button {
-    background: linear-gradient(135deg, rgba(96, 165, 250, 0.32), rgba(56, 189, 248, 0.24));
-    border-color: rgba(96, 165, 250, 0.45);
+    background: linear-gradient(135deg, var(--button-gradient-start), var(--button-gradient-end));
+    border-color: rgba(255, 255, 255, 0.12);
     color: var(--text-color);
-    box-shadow: 0 16px 32px rgba(8, 24, 68, 0.35);
+    box-shadow: 0 18px 42px rgba(7, 12, 32, 0.55);
 }
 
 .btn:hover,
@@ -101,38 +124,39 @@ a:hover {
 .view-button:hover,
 .action-btn:hover,
 .recent-open-button:hover {
-    background: linear-gradient(135deg, rgba(96, 165, 250, 0.52), rgba(56, 189, 248, 0.38));
-    transform: translateY(-1px);
-    box-shadow: 0 20px 40px rgba(8, 24, 68, 0.45);
+    background: linear-gradient(135deg, var(--button-gradient-end), var(--primary-color));
+    transform: translateY(-2px);
+    box-shadow: 0 24px 50px rgba(7, 12, 32, 0.6);
 }
 
 .secondary-btn,
 .back-button,
 .ghost-btn {
-    background: rgba(148, 163, 184, 0.14);
-    border-color: rgba(148, 163, 184, 0.24);
+    background: rgba(148, 163, 184, 0.12);
+    border-color: rgba(148, 163, 184, 0.28);
     color: var(--muted-strong);
-    box-shadow: none;
+    box-shadow: 0 12px 30px rgba(5, 9, 20, 0.45);
 }
 
 .secondary-btn:hover,
 .back-button:hover,
 .ghost-btn:hover {
-    background: rgba(148, 163, 184, 0.26);
+    background: rgba(148, 163, 184, 0.22);
     color: var(--text-color);
+    transform: translateY(-2px);
 }
 
 .danger-btn,
 .delete-btn {
-    background: rgba(239, 68, 68, 0.22);
-    border-color: rgba(239, 68, 68, 0.38);
-    color: #fecaca;
+    background: linear-gradient(135deg, rgba(248, 113, 113, 0.85), rgba(220, 38, 38, 0.7));
+    border-color: rgba(248, 113, 113, 0.6);
+    color: #fff5f5;
 }
 
 .danger-btn:hover,
 .delete-btn:hover {
-    background: rgba(239, 68, 68, 0.32);
-    color: #fee2e2;
+    background: linear-gradient(135deg, rgba(248, 113, 113, 1), rgba(185, 28, 28, 0.9));
+    color: #fff;
 }
 
 .btn:disabled,
@@ -147,6 +171,19 @@ a:hover {
     box-shadow: none;
 }
 
+.btn:focus-visible,
+.primary-btn:focus-visible,
+.secondary-btn:focus-visible,
+.danger-btn:focus-visible,
+.ghost-btn:focus-visible,
+.view-button:focus-visible,
+.back-button:focus-visible,
+.action-btn:focus-visible,
+.recent-open-button:focus-visible {
+    outline: 2px solid var(--primary-bright);
+    outline-offset: 3px;
+}
+
 .input,
 .search-input,
 .filter-input,
@@ -155,16 +192,16 @@ input[type="search"],
 input[type="number"],
 select,
 textarea {
-    background: rgba(14, 20, 35, 0.88);
+    background: rgba(6, 9, 20, 0.92);
     color: var(--text-color);
-    border: 1px solid rgba(99, 110, 155, 0.35);
-    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 14px;
     padding: 12px 16px;
     font-size: 1rem;
     transition: border-color var(--transition-duration) ease, box-shadow var(--transition-duration) ease;
     width: 100%;
     font-family: inherit;
-    box-shadow: inset 0 8px 18px rgba(6, 12, 26, 0.45);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 30px rgba(3, 6, 17, 0.45);
 }
 
 .input:focus,
@@ -176,8 +213,8 @@ input[type="number"]:focus,
 select:focus,
 textarea:focus {
     outline: none;
-    border-color: rgba(96, 165, 250, 0.6);
-    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.18);
+    border-color: rgba(139, 92, 246, 0.85);
+    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.5);
 }
 
 .input::placeholder,
@@ -191,8 +228,8 @@ textarea::placeholder {
 .summary-box,
 .analysis-card {
     border-radius: 24px;
-    border: 1px solid var(--border-color);
-    background: linear-gradient(145deg, rgba(18, 24, 40, 0.92), rgba(22, 30, 49, 0.82));
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    background: linear-gradient(145deg, rgba(13, 18, 35, 0.92), rgba(19, 27, 48, 0.82));
     box-shadow: var(--card-shadow);
 }
 
@@ -336,7 +373,7 @@ textarea::placeholder {
     display: flex;
     flex-direction: column;
     border-radius: 24px;
-    background: rgba(17, 23, 39, 0.95);
+    background: var(--surface-color);
     border: 1px solid rgba(95, 108, 153, 0.28);
     box-shadow: 0 32px 64px rgba(5, 10, 22, 0.65);
 }

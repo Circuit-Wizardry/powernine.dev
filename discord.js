@@ -1,9 +1,11 @@
+import 'dotenv/config';
+
 /**
  * A simple logger for sending messages to a Discord webhook using Node.js's native fetch.
  */
 
 // Store the webhook URL privately in the module.
-let webhookUrl = 'https://discord.com/api/webhooks/1419878447714668686/XEJ1RC56BAMbomLDz0bwEQ8HMzUianIBiygMx609eu44pcz0Hlg_IJj2xXd-hdh3WnLi';
+let webhookUrl = process.env.DISCORD_WEBHOOK_URL || '';
 
 /**
  * Sets the Discord webhook URL to be used by the logger.
@@ -11,12 +13,13 @@ let webhookUrl = 'https://discord.com/api/webhooks/1419878447714668686/XEJ1RC56B
  * @param {string} url - The full Discord webhook URL.
  */
 function setWebhookUrl(url) {
-  if (!url) {
-    console.error('Webhook URL cannot be empty.');
-    return;
+  if (typeof url !== 'string' || !url.trim()) {
+    console.warn('Webhook URL cannot be empty. Discord logging remains disabled.');
+    return false;
   }
-  webhookUrl = url;
+  webhookUrl = url.trim();
   console.log('Discord webhook URL has been set.');
+  return true;
 }
 
 /**
@@ -26,7 +29,7 @@ function setWebhookUrl(url) {
  */
 async function log(message) {
   if (!webhookUrl) {
-    console.error('Error: Discord webhook URL is not set. Please call setWebhookUrl() first.');
+    console.warn('Discord webhook URL is not set. Skipping log message.');
     return;
   }
 
@@ -59,5 +62,6 @@ async function log(message) {
 // Export the functions for use in other files.
 export {
   log,
+  setWebhookUrl,
 };
 

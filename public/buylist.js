@@ -8,6 +8,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- State ---
     let inventory = [];
+    const escapeHtml = (value = '') => String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 
     // --- Helper Functions (from inventory.js) ---
     const formatPrice = (value) => {
@@ -118,11 +124,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const imageUrl = item.tcgplayerId
             ? `https://tcgplayer-cdn.tcgplayer.com/product/${item.tcgplayerId}_in_200x200.jpg`
             : 'https://placehold.co/100x140/1a1a1a/e0e0e0?text=N/A';
-        
+        const safeName = escapeHtml(item.name);
+        const safeSet = escapeHtml(item.setCode);
+        const safeCondition = escapeHtml(item.condition);
+        const foilLabel = item.foilType !== 'normal' ? ` (${escapeHtml(item.foilType)})` : '';
+        const safeImage = escapeHtml(imageUrl);
+
         itemElement.innerHTML = `
-            <img src="${imageUrl}" alt="${item.name}" class="item-image" style="width: 50px; height: 70px;">
+            <img src="${safeImage}" alt="${safeName}" class="item-image" style="width: 50px; height: 70px;">
             <div class="item-details">
-                <div class="item-header">${item.name} (${item.setCode}) - ${item.condition} ${item.foilType !== 'normal' ? `(${item.foilType})` : ''}</div>
+                <div class="item-header">${safeName} (${safeSet}) - ${safeCondition}${foilLabel}</div>
                 <div class="price-table-container">
                     <table>
                         <thead> <tr> <th>TCG Market</th> <th>TCG Low</th> <th>TCG Low + Ship</th> <th>CK Buylist</th> <th>SCG Buylist</th> <th>CSI Buylist</th> </tr> </thead>
@@ -211,6 +222,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 item.tcgLowPlusShipping = mergedData.tcgLowPlusShipping;
                 
                 updatePriceRow(item.id, mergedData, true);
+                await fetch(`/api/inventory/${item.id}/prices`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        tcgLow: mergedData.tcgLow,
+                        manaPoolLow: mergedData.manaPoolLow,
+                        tcgLowPlusShipping: mergedData.tcgLowPlusShipping
+                    })
+                }).catch(() => {
+                    console.warn('Failed to persist live prices for', item.name);
+                });
 
             } catch (error) {
                 console.error(error);
@@ -231,7 +253,7 @@ document.addEventListener('DOMContentLoaded', () => {
             inventory = await response.json();
             
             if (inventory.length === 0) {
-                 analysisContainer.innerHTML = '<p>No inventory items found.</p>';
+                 analysisContainer.textContent = 'No inventory items found.';
                  return;
             }
             analysisContainer.innerHTML = ''; 
@@ -240,7 +262,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (error) {
             console.error(error);
-            analysisContainer.innerHTML = `<p style="color: red;">${error.message}</p>`;
+            analysisContainer.innerHTML = '';
+            const errorMessage = document.createElement('p');
+            errorMessage.style.color = 'red';
+            errorMessage.textContent = error.message;
+            analysisContainer.appendChild(errorMessage);
         }
     };
 

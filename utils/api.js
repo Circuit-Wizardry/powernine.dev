@@ -14,15 +14,31 @@ import { scrapeTcgplayerData } from '../scrapers/tcgplayer.js';
 import { scrapeManaPoolListings } from '../scrapers/manapool.js';
 import { scrapeStarCityGamesBuylist } from '../scrapers/starcitygames.js';
 
-const FIXED_SHIPPING_EXPENSE = 1.25; // The cost of an envelope and materials
+const FIXED_SHIPPING_EXPENSE = 0; // Default packaging cost when none supplied
+
+const normalizeManaPoolSlug = (cardName = '') => {
+    return cardName
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .trim()
+        .replace(/\s+/g, '-');
+};
 
 const calculateFees = (salePrice, platform) => {
     if (salePrice <= 0) return 0;
     const TCGPLAYER_FEE_RATE = 0.1275;
     const MANAPOOL_FEE_RATE = 0.079;
     const FLAT_FEE = 0.30;
-    const rate = platform === 'TCGPlayer' ? TCGPLAYER_FEE_RATE : MANAPOOL_FEE_RATE;
-    return (salePrice * rate) + FLAT_FEE;
+
+    if (platform === 'TCGPlayer') {
+        return (salePrice * TCGPLAYER_FEE_RATE) + FLAT_FEE;
+    }
+    if (platform === 'ManaPool') {
+        return (salePrice * MANAPOOL_FEE_RATE) + FLAT_FEE;
+    }
+    return 0; // Independent / in-person sales have no platform fee
 };
 
 const mapInternalConditionToManabox = (internalCondition) => {
@@ -79,8 +95,9 @@ const pdfUpload = multer({
 
 
 // The router is a function that accepts the database (db) connection
-export default function(db) {
+export default function(db, options = {}) {
     const router = express.Router();
+    const uploadRoot = options.uploadRoot ? path.resolve(options.uploadRoot) : path.resolve('./private/uploads');
 
     const csvUpload = multer({ storage: multer.memoryStorage() });
 
@@ -139,53 +156,46 @@ export default function(db) {
 
 
     router.post('/scrape-lows', express.json(), async (req, res) => {
-        // `condition` is optional, and `store` is a new optional parameter
         const { tcgplayerId, cardName, setCode, collectorNumber, foilType, condition, store } = req.body;
 
-        // `condition` and `store` are not required
         if (!tcgplayerId || !cardName || !setCode || !collectorNumber || !foilType) {
             return res.status(400).json({ error: 'Missing required card identifiers for scraping.' });
         }
 
+        const normalizedCondition = (condition || 'NM').toUpperCase();
+
         let browser;
         try {
-            const logMessage = condition ? `${cardName} (${condition} ${foilType})` : `${cardName} (Cheapest ${foilType})`;
-            
+            const logMessage = `${cardName} (${normalizedCondition} ${foilType})`;
             browser = await chromium.launch({ headless: true });
             const context = await browser.newContext({
                 userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             });
             const page = await context.newPage();
-            
+
             let tcgLow = null;
             let tcgLowPlusShipping = null;
             let manaPoolLow = null;
-            
-            // --- NEW: Conditional scraping logic based on the 'store' parameter ---
+            const slugCandidate = normalizeManaPoolSlug(cardName);
+            const cardSlug = slugCandidate || encodeURIComponent(cardName.toLowerCase());
 
-            // If the store is specified as 'manapool', only scrape ManaPool.
             if (store === 'manapool') {
                 console.log('[scrape-lows] Starting ManaPool-only scrape for ' + logMessage);
-
-                const cardSlug = cardName.toLowerCase().replace(/\s/g, '-').replace(/[^a-z0-9-]/g, '');
                 const manaPoolUrl = `https://manapool.com/card/${setCode.toLowerCase()}/${collectorNumber}/${cardSlug}`;
-                const mpData = await scrapeManaPoolListings(page, manaPoolUrl, foilType, condition ? condition : "DMG");
+                const mpData = await scrapeManaPoolListings(page, manaPoolUrl, foilType, normalizedCondition);
                 manaPoolLow = mpData.cheapestPrice;
-                
                 console.log('[scrape-lows] ManaPool scrape successful:', { manaPoolLow });
             } else {
                 console.log('[scrape-lows] Starting full scrape job for ' + logMessage);
-
-                const tcgData = await scrapeTcgplayerData(page, tcgplayerId, foilType, condition ? condition : "DMG");
+                const tcgData = await scrapeTcgplayerData(page, tcgplayerId, foilType, normalizedCondition);
                 console.log('   -> TCGplayer scrape returned:', tcgData);
-                tcgLow = tcgData.cheapestListing?.itemPrice ?? null; 
+                tcgLow = tcgData.cheapestListing?.itemPrice ?? null;
                 tcgLowPlusShipping = tcgData.cheapestListing?.totalPrice ?? null;
-                
+
                 const shouldScrapeManaPool = store !== 'tcgplayer' && store !== 'tcgplayer-only' && store !== 'tcg';
                 if (shouldScrapeManaPool) {
-                    const cardSlug = cardName.toLowerCase().replace(/\s/g, '-').replace(/[^a-z0-9-]/g, '');
                     const manaPoolUrl = `https://manapool.com/card/${setCode.toLowerCase()}/${collectorNumber}/${cardSlug}`;
-                    const mpData = await scrapeManaPoolListings(page, manaPoolUrl, foilType, condition ? condition : "DMG");
+                    const mpData = await scrapeManaPoolListings(page, manaPoolUrl, foilType, normalizedCondition);
                     manaPoolLow = mpData.cheapestPrice;
                 } else {
                     console.log('     -> Skipping ManaPool scrape per request.');
@@ -195,11 +205,10 @@ export default function(db) {
             }
 
             res.json({
-                tcgLow: tcgLow, // Will be null if only ManaPool was scraped
-                tcgLowPlusShipping: tcgLowPlusShipping,
-                manaPoolLow: manaPoolLow
+                tcgLow,
+                tcgLowPlusShipping,
+                manaPoolLow
             });
-
         } catch (error) {
             console.error('[scrape-lows] Scrape failed for ' + cardName + ':', error);
             res.status(500).json({ error: 'Failed to scrape pricing data.' });
@@ -274,7 +283,7 @@ export default function(db) {
     router.get('/transactions', (req, res) => {
         const sql = `
             SELECT 
-                t.id, t.soldAt, t.platform, t.shippingCost, t.totalSalePrice, t.netProfit, t.packingSlipPath,
+                t.id, t.soldAt, t.platform, t.shippingCost, t.packagingCost, t.totalSalePrice, t.netProfit, t.packingSlipPath,
                 json_group_array(
                     json_object(
                         'name', i.name, 'setCode', i.setCode, 'condition', i.condition, 
@@ -311,7 +320,7 @@ export default function(db) {
      * UPDATED: POST a new transaction with quantities and new profit logic.
      */
     router.post('/transactions', express.json(), (req, res) => {
-        const { items, platform, shippingCost: customerPaidShipping } = req.body;
+        const { items, platform, shippingCost: customerPaidShipping, packagingCost } = req.body;
 
         if (!items || !Array.isArray(items) || items.length === 0) {
             return res.status(400).json({ error: 'Transaction must include at least one item.' });
@@ -345,14 +354,18 @@ export default function(db) {
                     totalPurchasePrice += dbItem.pricePaid * item.quantity;
                 }
 
+                const shippingPaid = Number.isFinite(Number(customerPaidShipping)) ? Number(customerPaidShipping) : 0;
                 const fees = calculateFees(totalSalePrice, platform);
-                const grossRevenue = totalSalePrice + parseFloat(customerPaidShipping);
-                const totalCost = totalPurchasePrice + fees + FIXED_SHIPPING_EXPENSE;
+                const grossRevenue = totalSalePrice + shippingPaid;
+                const parsedPackaging = Number.isFinite(Number(packagingCost)) && Number(packagingCost) >= 0
+                    ? Number(packagingCost)
+                    : FIXED_SHIPPING_EXPENSE;
+                const totalCost = totalPurchasePrice + fees + parsedPackaging;
                 const netProfit = grossRevenue - totalCost;
                 const transactionId = randomUUID();
 
-                const transSql = `INSERT INTO transactions (id, platform, shippingCost, totalSalePrice, netProfit) VALUES (?, ?, ?, ?, ?)`;
-                db.run(transSql, [transactionId, platform, customerPaidShipping, totalSalePrice, netProfit], function(err) {
+                const transSql = `INSERT INTO transactions (id, platform, shippingCost, packagingCost, totalSalePrice, netProfit) VALUES (?, ?, ?, ?, ?, ?)`;
+                db.run(transSql, [transactionId, platform, customerPaidShipping, parsedPackaging, totalSalePrice, netProfit], function(err) {
                     if (err) {
                         db.run("ROLLBACK");
                         return res.status(500).json({ error: `Failed to create transaction record: ${err.message}` });
@@ -367,7 +380,7 @@ export default function(db) {
                                     db.run("ROLLBACK");
                                     return res.status(500).json({ error: `Failed to commit transaction: ${err.message}` });
                                 }
-                                return res.status(201).json({ id: transactionId });
+                                return res.status(201).json({ id: transactionId, packagingCost });
                             });
                             return;
                         }
@@ -422,9 +435,14 @@ export default function(db) {
 
                 const slipPath = items[0].packingSlipPath;
                 if (slipPath) {
-                    fs.unlink(path.resolve(slipPath), (unlinkErr) => {
-                        if (unlinkErr) console.error("Failed to delete packing slip file:", unlinkErr);
-                    });
+                    const resolvedSlip = path.resolve(slipPath);
+                    if (resolvedSlip.startsWith(uploadRoot)) {
+                        fs.unlink(resolvedSlip, (unlinkErr) => {
+                            if (unlinkErr) console.error("Failed to delete packing slip file:", unlinkErr);
+                        });
+                    } else {
+                        console.warn('[transactions] Skipped deleting packing slip outside upload directory:', resolvedSlip);
+                    }
                 }
 
                 db.run("COMMIT", (commitErr) => {
@@ -480,7 +498,7 @@ export default function(db) {
         const fileContent = req.file.buffer.toString('utf8');
         
         // --- NEW: File type detection and parsing logic ---
-        if (req.file.originalname.endsWith('.txt')) {
+        if (req.file.originalname.toLowerCase().endsWith('.txt')) {
             const lines = fileContent.split(/\r?\n/);
             // Regex to capture: 1. Quantity, 2. Name, 3. Set Code, 4. Collector #, 5. Foil type (optional)
             const lineRegex = /^(\d+)\s+(.+?)\s+\((\w+)\)\s+([\w\d]+)\s*(?:\*([FE])\*)?$/;
@@ -641,6 +659,35 @@ export default function(db) {
                 message: 'List name updated.',
                 name: finalName
             });
+        });
+    });
+
+    router.put('/inventory/:id/details', express.json(), (req, res) => {
+        const { id } = req.params;
+        let { condition, foilType, pricePaid } = req.body || {};
+
+        const validConditions = ['NM', 'M', 'LP', 'MP', 'HP', 'DMG'];
+        condition = typeof condition === 'string' ? condition.toUpperCase() : 'NM';
+        if (!validConditions.includes(condition)) {
+            return res.status(400).json({ error: 'Invalid condition provided.' });
+        }
+
+        const allowedFoils = ['normal', 'foil', 'etched', 'glossy'];
+        foilType = typeof foilType === 'string' ? foilType : 'normal';
+        if (!allowedFoils.includes(foilType)) {
+            foilType = 'normal';
+        }
+
+        pricePaid = Number(pricePaid);
+        if (!Number.isFinite(pricePaid) || pricePaid < 0) {
+            return res.status(400).json({ error: 'Invalid purchase price.' });
+        }
+
+        const sql = `UPDATE inventory SET condition = ?, foilType = ?, pricePaid = ? WHERE id = ?`;
+        db.run(sql, [condition, foilType, pricePaid, id], function(err) {
+            if (err) return res.status(400).json({ error: err.message });
+            if (this.changes === 0) return res.status(404).json({ message: 'Item not found.' });
+            res.status(200).json({ message: 'Inventory item updated.', condition, foilType, pricePaid });
         });
     });
 

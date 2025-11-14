@@ -84,6 +84,7 @@
             this.limit = Number.isFinite(options.limit) ? options.limit : 8;
             this.debounceMs = Number.isFinite(options.debounceMs) ? options.debounceMs : 200;
             this.fetchCards = typeof options.fetchCards === 'function' ? options.fetchCards : defaultCardSearchFetcher;
+            this.showSetInfo = options.showSetInfo === true;
             this.results = [];
             this.activeIndex = -1;
             this.abortController = null;
@@ -255,13 +256,18 @@
                 nameEl.textContent = card.name;
                 meta.appendChild(nameEl);
 
-                const setEl = document.createElement('span');
-                setEl.className = 'card-search__set';
-                const setText = [];
-                if (card.set_name) setText.push(card.set_name);
-                if (card.collector_number) setText.push(`#${card.collector_number}`);
-                setEl.textContent = setText.join(' \u2022 ');
-                meta.appendChild(setEl);
+                if (this.showSetInfo) {
+                    const hasSetInfo = card.set_name || card.collector_number;
+                    if (hasSetInfo) {
+                        const setEl = document.createElement('span');
+                        setEl.className = 'card-search__set';
+                        const setText = [];
+                        if (card.set_name) setText.push(card.set_name);
+                        if (card.collector_number) setText.push(`#${card.collector_number}`);
+                        setEl.textContent = setText.join(' \u2022 ');
+                        meta.appendChild(setEl);
+                    }
+                }
 
                 item.appendChild(meta);
 

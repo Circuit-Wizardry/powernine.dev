@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', () => {
+﻿document.addEventListener('DOMContentLoaded', () => {
     if (!window.cardUtils) {
         console.error('cardUtils utilities are not available.');
         return;
@@ -7,9 +7,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let transactions = [];
     let inventory = [];
     let stagedItems = []; // Holds items for the current transaction before submission
-    const TCGPLAYER_FEE_RATE = 0.1075;
+    const TCGPLAYER_FEE_RATE = 0.1275;
     const MANAPOOL_FEE_RATE = 0.079;
-    const FIXED_SHIPPING_EXPENSE = 1.25; // Estimated fixed cost per transaction
     const FLAT_FEE = 0.30;
 
     const transactionListContainer = document.getElementById('transaction-list-container');
@@ -21,7 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let inventorySearchWidget = null;
 
     // --- Frontend rate-limiting queue for Scryfall detail fetches ---
-    const RATE_LIMIT_MS = 25;
+    const RATE_LIMIT_MS = 75;
     const detailRequestQueue = [];
     let isDetailRequestProcessing = false;
 
@@ -29,7 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
      * Processes the queue of requests to fetch detailed inventory data.
      * Re-enables the "Add Transaction" button when all data is loaded.
      */
-    const processDetailQueue = () => {
+    const processDetailQueue = async () => {
         if (detailRequestQueue.length === 0) {
             isDetailRequestProcessing = false;
             addTransactionBtn.disabled = false;
@@ -39,7 +38,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         isDetailRequestProcessing = true;
         const task = detailRequestQueue.shift();
-        task();
+        try {
+            await task();
+        } catch (error) {
+            console.error('Inventory detail fetch failed:', error);
+        }
         setTimeout(processDetailQueue, RATE_LIMIT_MS);
     };
 
@@ -49,6 +52,13 @@ document.addEventListener('DOMContentLoaded', () => {
             processDetailQueue();
         }
     };
+
+    const escapeHtml = (value = '') => String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 
     const disposeInventorySearchWidget = () => {
         if (inventorySearchWidget) {
@@ -64,11 +74,11 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // --- Helper Functions ---
-    const calculateFees = (salePrice, shipping, platform) => {
+    const calculateFees = (salePrice, platform) => {
         if (salePrice <= 0) return 0;
         const rate = platform === 'TCGPlayer' ? TCGPLAYER_FEE_RATE : (platform === 'ManaPool' ? MANAPOOL_FEE_RATE : 0);
         if (rate === 0) return 0; // No fees for independent sales
-        return ((salePrice + shipping) * rate) + FLAT_FEE;
+        return (salePrice * rate) + FLAT_FEE;
     };
 
     const formatDate = (dateString) => new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -87,14 +97,23 @@ document.addEventListener('DOMContentLoaded', () => {
         transactionListContainer.innerHTML = transactions.map(t => {
             const profitClass = t.netProfit >= 0 ? 'profit' : 'loss';
             const profitSign = t.netProfit >= 0 ? '+' : '';
+            const primaryItem = t.items[0] || {};
+            const title = t.items.length > 1
+                ? `Sale (${t.items.length} items)`
+                : escapeHtml(primaryItem.name || 'Unknown card');
+            const subtitle = t.items.length > 1
+                ? `Total Sale: $${t.totalSalePrice.toFixed(2)}`
+                : escapeHtml(`${primaryItem.condition || ''} ${primaryItem.foilType && primaryItem.foilType !== 'normal' ? primaryItem.foilType : ''}`.trim());
+            const platformLabel = escapeHtml(t.platform || 'Unknown');
+            const dateLabel = formatDate(t.soldAt);
             return `
-                <div class="transaction-item ${profitClass}" data-id="${t.id}">
+                <div class="transaction-item ${profitClass}" data-id="${escapeHtml(t.id)}">
                     <div class="transaction-info">
-                        <strong>${t.items.length > 1 ? `Sale (${t.items.length} items)` : t.items[0].name}</strong>
-                        <small>${t.items.length > 1 ? `Total Sale: $${t.totalSalePrice.toFixed(2)}` : `${t.items[0].condition} ${t.items[0].foilType !== 'normal' ? t.items[0].foilType : ''}`}</small>
+                        <strong>${title}</strong>
+                        <small>${subtitle}</small>
                     </div>
-                    <div class="transaction-platform">${t.platform}</div>
-                    <div class="transaction-date">${formatDate(t.soldAt)}</div>
+                    <div class="transaction-platform">${platformLabel}</div>
+                    <div class="transaction-date">${dateLabel}</div>
                     <div class="transaction-profit ${profitClass}">${profitSign}$${t.netProfit.toFixed(2)}</div>
                 </div>
             `;
@@ -132,6 +151,10 @@ document.addEventListener('DOMContentLoaded', () => {
                             <option value="independent">Independent</option>
                         </select>
                     </div>
+                    <div class="form-group">
+                        <label for="packagingCost">Packaging Cost ($):</label>
+                        <input type="number" name="packagingCost" id="packagingCost" step="0.01" value="0" min="0" placeholder="0.00">
+                    </div>
                 </div>
                 <div class="profit-preview" id="profit-preview"></div>
                 <button type="submit" class="action-btn">Save Transaction</button>
@@ -160,7 +183,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     .map(item => ({
                         id: item.id,
                         name: item.name,
-                        set_name: `${item.setCode?.toUpperCase() || ''} • ${item.condition}`.trim(),
+                        set_name: `${item.setCode?.toUpperCase() || ''} � ${item.condition}`.trim(),
                         collector_number: `Qty: ${item.quantity}`,
                         image_small: item.imageUrl || null,
                     }));
@@ -223,11 +246,16 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        container.innerHTML = stagedItems.map((item, index) => `
+        container.innerHTML = stagedItems.map((item, index) => {
+            const safeName = escapeHtml(item.name);
+            const safeCondition = escapeHtml(item.condition || 'NM');
+            const foilLabel = item.foilType && item.foilType !== 'normal' ? ` ? ${escapeHtml(item.foilType)}` : '';
+            const maxQuantity = escapeHtml(String(item.maxQuantity));
+            return `
             <div class="staged-item">
                 <div class="staged-item-header">
-                    <span class="staged-item-name">${item.name}</span>
-                    <small class="staged-item-meta">${item.condition}${item.foilType && item.foilType !== 'normal' ? ` • ${item.foilType}` : ''} • Max ${item.maxQuantity}</small>
+                    <span class="staged-item-name">${safeName}</span>
+                    <small class="staged-item-meta">${safeCondition}${foilLabel} ? Max ${maxQuantity}</small>
                 </div>
                 <div class="staged-item-inputs">
                     <label>
@@ -241,7 +269,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     </label>
                 </div>
             </div>
-        `).join('');
+        `;
+        }).join('');
 
         container.querySelectorAll('.staged-quantity-input').forEach(input => {
             input.addEventListener('input', (event) => {
@@ -271,18 +300,28 @@ document.addEventListener('DOMContentLoaded', () => {
     const openViewModal = (transaction) => {
         disposeInventorySearchWidget();
         const totalPurchasePrice = transaction.items.reduce((acc, item) => acc + item.pricePaid, 0);
-        const fees = calculateFees(transaction.totalSalePrice, transaction.shippingCost, transaction.platform);
+        const fees = calculateFees(transaction.totalSalePrice, transaction.platform);
+        const derivedPackaging = Math.max(0, Number((transaction.totalSalePrice + transaction.shippingCost - totalPurchasePrice - fees - transaction.netProfit).toFixed(2)));
+        const packagingCost = Number.isFinite(transaction.packagingCost)
+            ? transaction.packagingCost
+            : derivedPackaging;
+        const platformLabel = escapeHtml(transaction.platform || 'Unknown');
+        const itemsHtml = transaction.items.map(item => `<div class="price-line"><span>${escapeHtml(item.name)}</span><span>$${item.salePrice.toFixed(2)}</span></div>`).join('');
+        const packagingLine = packagingCost > 0
+            ? `<div class="price-line"><span>Packaging:</span><span class="loss">- $${packagingCost.toFixed(2)}</span></div>`
+            : `<div class="price-line"><span>Packaging:</span><span>$0.00</span></div>`;
         modalContentBody.innerHTML = `
             <h2>Transaction Details</h2>
             <div class="details-grid">
                 <div class="info-block">
                     <h3>Cost Breakdown</h3>
                     <div class="price-line"><span>Sold On:</span><span>${formatDate(transaction.soldAt)}</span></div>
-                    <div class="price-line"><span>Platform:</span><span>${transaction.platform}</span></div>
+                    <div class="price-line"><span>Platform:</span><span>${platformLabel}</span></div>
                     <hr>
                     <div class="price-line"><span>Total Sale Price:</span><span class="profit">+ $${transaction.totalSalePrice.toFixed(2)}</span></div>
                     <div class="price-line"><span>Shipping Cost:</span><span class="profit">+ $${transaction.shippingCost.toFixed(2)}</span></div>
                     <div class="price-line"><span>Platform Fees:</span><span class="loss">- $${fees.toFixed(2)}</span></div>
+                    ${packagingLine}
                     <div class="price-line"><span>Total Purchase Price:</span><span class="loss">- $${totalPurchasePrice.toFixed(2)}</span></div>
                     <hr>
                     <div class="price-line total">
@@ -293,7 +332,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
                 <div class="info-block">
                     <h3>Items Sold (${transaction.items.length})</h3>
-                    ${transaction.items.map(item => `<div class="price-line"><span>${item.name}</span><span>$${item.salePrice.toFixed(2)}</span></div>`).join('')}
+                    ${itemsHtml}
                     <hr>
                 </div>
             </div>
@@ -330,17 +369,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const customerPaidShipping = parseFloat(form.elements.shippingCost.value) || 0;
         const platform = form.elements.platform.value;
-        const fees = calculateFees(totalSalePrice, customerPaidShipping, platform);
+        const packagingValue = parseFloat(form.elements.packagingCost?.value);
+        const packagingCost = Number.isFinite(packagingValue) && packagingValue >= 0 ? packagingValue : 0;
+        const fees = calculateFees(totalSalePrice, platform);
 
-        // New, more accurate profit calculation
         const grossRevenue = totalSalePrice + customerPaidShipping;
-        const totalCost = totalPurchasePrice + fees + FIXED_SHIPPING_EXPENSE;
+        const totalCost = totalPurchasePrice + fees + packagingCost;
         const netProfit = grossRevenue - totalCost;
         const profitClass = netProfit >= 0 ? 'profit' : 'loss';
         previewEl.innerHTML = `
             <div class="price-line"><span>Total Sale Price:</span><span>$${totalSalePrice.toFixed(2)}</span></div>
             <div class="price-line"><span>Shipping:</span><span class="profit">+ $${customerPaidShipping.toFixed(2)}</span></div>
             <div class="price-line"><span>Platform Fees:</span><span class="loss">- $${fees.toFixed(2)}</span></div>
+            <div class="price-line"><span>Packaging:</span><span class="loss">- $${packagingCost.toFixed(2)}</span></div>
             <div class="price-line"><span>Total Purchase Price:</span><span class="loss">- $${totalPurchasePrice.toFixed(2)}</span></div>
             <hr>
             <div class="price-line total"><span>Estimated Net Profit:</span><span class="${profitClass}">$${netProfit.toFixed(2)}</span></div>
@@ -369,6 +410,8 @@ document.addEventListener('DOMContentLoaded', () => {
             alert("Please add at least one card to the sale.");
             return;
         }
+        const packagingValue = parseFloat(form.elements.packagingCost?.value);
+        const packagingCost = Number.isFinite(packagingValue) && packagingValue >= 0 ? packagingValue : 0;
         const transactionData = {
             items: stagedItems.map(i => ({
                 inventoryId: i.inventoryId,
@@ -377,6 +420,7 @@ document.addEventListener('DOMContentLoaded', () => {
             })),
             platform: form.elements.platform.value,
             shippingCost: parseFloat(form.elements.shippingCost.value) || 0,
+            packagingCost
         }
         try {
             const transactionResponse = await fetch('/api/transactions', {
@@ -435,8 +479,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 fetch('/api/transactions'),
                 fetch('/api/inventory')
             ]);
-            transactions = await transRes.json();
-            inventory = (await invRes.json()).map(item => ({
+
+            if (!transRes.ok) {
+                const errorData = await transRes.json().catch(() => ({}));
+                throw new Error(errorData.error || `Failed to load transactions (status ${transRes.status}).`);
+            }
+            if (!invRes.ok) {
+                const errorData = await invRes.json().catch(() => ({}));
+                throw new Error(errorData.error || `Failed to load inventory (status ${invRes.status}).`);
+            }
+
+            const transactionsData = await transRes.json();
+            const inventoryData = await invRes.json();
+
+            transactions = Array.isArray(transactionsData) ? transactionsData : [];
+            inventory = Array.isArray(inventoryData) ? inventoryData.map(item => ({
                 ...item,
                 _searchString: [
                     item.name,
@@ -445,15 +502,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     item.condition,
                     item.foilType,
                 ].filter(Boolean).join(' ').toLowerCase(),
-            }));
+            })) : [];
             renderTransactionList();
             if (inventory.length > 0) {
                 inventory.forEach(item => {
                     addToDetailQueue(() => {
-                        fetch(`/api/prices/${item.setCode}/${item.collectorNumber}`)
+                        fetch(`/api/card/details/${item.setCode}/${item.collectorNumber}`)
                             .then(res => res.ok ? res.json() : null)
                             .then(priceData => {
-                                item.tcgMarketPrice = getLatestPrice(priceData?.paper?.tcgplayer?.retail?.[item.foilType]) || 0;
+                                item.tcgMarketPrice = getLatestPrice(priceData?.prices?.paper?.tcgplayer?.retail?.[item.foilType]) || 0;
                             });
                     });
                 });
@@ -482,4 +539,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     initializePage();
 });
+
+
+
+
 

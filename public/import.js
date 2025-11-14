@@ -29,8 +29,10 @@ document.addEventListener('DOMContentLoaded', () => {
             uploadMessage.style.color = '#E53E3E'; // Red
             return;
         }
-        if (file.type !== 'text/csv') {
-            uploadMessage.textContent = 'Invalid file type. Please upload a .csv file.';
+        const fileName = file.name.toLowerCase();
+        const validExtension = fileName.endsWith('.csv') || fileName.endsWith('.txt');
+        if (!validExtension) {
+            uploadMessage.textContent = 'Invalid file type. Please upload a .csv or .txt file.';
             uploadMessage.style.color = '#E53E3E';
             return;
         }
@@ -43,24 +45,29 @@ document.addEventListener('DOMContentLoaded', () => {
         
         uploadMessage.textContent = 'Uploading and processing...';
         uploadMessage.style.color = '#4FD1C5'; // Teal
+        uploadBtn.disabled = true;
 
         // --- Send to server ---
         const formData = new FormData();
         formData.append('cardList', file);
 
-        const response = await fetch('/api/import-csv', {
-            method: 'POST',
-            body: formData
-        });
+        try {
+            const response = await fetch('/api/import-csv', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
 
-        const result = await response.json();
-
-        if (response.ok) {
-            // SUCCESS: Instead of saving to session storage, we redirect!
-            window.location.href = `/list/${result.listId}`;
-        } else {
-            // Handle error
-            alert(`Error: ${result.message}`);
+            if (response.ok) {
+                window.location.href = `/list/${result.listId}`;
+            } else {
+                throw new Error(result.message || 'Upload failed.');
+            }
+        } catch (error) {
+            uploadMessage.textContent = `Error: ${error.message}`;
+            uploadMessage.style.color = '#E53E3E';
+        } finally {
+            uploadBtn.disabled = false;
         }
     });
     

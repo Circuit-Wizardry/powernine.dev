@@ -72,15 +72,20 @@ document.addEventListener('DOMContentLoaded', () => {
         
         modalQuantity.textContent = card.quantity;
 
-        let price = 'N/A';
-        if (card.foilType === 'foil' && card.prices?.usd_foil) {
-            price = card.prices.usd_foil;
-        } else if (card.foilType === 'etched' && card.prices?.usd_etched) {
-            price = card.prices.usd_etched;
-        } else if (card.prices?.usd) {
-            price = card.prices.usd; // Default to non-foil price
+        const parsePrice = (value) => {
+            const parsed = Number.parseFloat(value);
+            return Number.isFinite(parsed) ? parsed : null;
+        };
+        let priceValue = null;
+        if (card.foilType === 'foil') {
+            priceValue = parsePrice(card.prices?.usd_foil);
+        } else if (card.foilType === 'etched') {
+            priceValue = parsePrice(card.prices?.usd_etched);
         }
-        modalPrice.textContent = `$${price}`;
+        if (priceValue === null) {
+            priceValue = parsePrice(card.prices?.usd);
+        }
+        modalPrice.textContent = priceValue === null ? 'N/A' : `$${priceValue.toFixed(2)}`;
         
         cardModal.classList.add('active');
     };
@@ -88,6 +93,16 @@ document.addEventListener('DOMContentLoaded', () => {
     /**
      * Fetches the initial list and pre-fetches all Scryfall data.
      */
+    if (switchViewBtn) {
+        switchViewBtn.dataset.pending = 'true';
+        switchViewBtn.setAttribute('aria-disabled', 'true');
+        switchViewBtn.addEventListener('click', (event) => {
+            if (switchViewBtn.dataset.pending === 'true') {
+                event.preventDefault();
+            }
+        });
+    }
+
     const loadBinder = async () => {
         const pathParts = window.location.pathname.split('/');
         const listId = pathParts[pathParts.length - 1];
@@ -98,6 +113,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         switchViewBtn.href = `/list/${listId}`;
+        switchViewBtn.dataset.pending = 'false';
+        switchViewBtn.removeAttribute('aria-disabled');
         modalListLink.href = `/list/${listId}`;
 
         try {

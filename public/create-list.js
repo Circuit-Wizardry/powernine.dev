@@ -4,10 +4,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const createListBtn = document.getElementById('create-list-btn');
 
     if (createListBtn) {
+        const defaultButtonMarkup = createListBtn.innerHTML;
+        const setButtonStatus = (message) => {
+            if (message) {
+                createListBtn.innerHTML = `<span class="tab-button__status">${message}</span>`;
+            } else {
+                createListBtn.innerHTML = defaultButtonMarkup;
+            }
+        };
+
         createListBtn.addEventListener('click', async () => {
             try {
                 createListBtn.disabled = true;
-                createListBtn.textContent = 'Creating...';
+                setButtonStatus('Creating...');
 
                 const response = await fetch('/api/lists/create', {
                     method: 'POST'
@@ -25,11 +34,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
             } catch (error) {
                 console.error(error);
-                createListBtn.textContent = 'Creation Failed';
+                setButtonStatus('Creation Failed');
                 // Re-enable the button after a delay so the user can try again
                 setTimeout(() => {
                     createListBtn.disabled = false;
-                    createListBtn.textContent = 'Create New List';
+                    setButtonStatus(null);
                 }, 2000);
             }
         });

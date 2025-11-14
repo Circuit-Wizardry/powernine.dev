@@ -23,6 +23,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const loadingMessage = document.getElementById('loading-message');
     const controlsDiv = document.querySelector('.controls');
     const inventoryTable = document.getElementById('inventory-table');
+    const escapeHtml = (value = '') => String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 
     // --- 1. Fetch Initial Inventory Data ---
     fetch('/api/inventory')
@@ -60,12 +66,12 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             row.innerHTML = `
-                <td>${item.name}</td>
-                <td>${item.setCode}</td>
-                <td>${item.collectorNumber}</td>
-                <td>${item.foilType}</td>
-                <td>${item.condition}</td>
-                <td>${item.quantity}</td>
+                <td>${escapeHtml(item.name)}</td>
+                <td>${escapeHtml(item.setCode)}</td>
+                <td>${escapeHtml(item.collectorNumber)}</td>
+                <td>${escapeHtml(item.foilType)}</td>
+                <td>${escapeHtml(item.condition)}</td>
+                <td>${escapeHtml(item.quantity)}</td>
                 <td><input type="number" step="0.01" class="price-input" placeholder="0.00"></td>
                 <td class="status-cell"><span class="status status-pending">Pending</span></td>
             `;
@@ -82,12 +88,11 @@ document.addEventListener('DOMContentLoaded', () => {
         downloadCsvBtn.disabled = true;
         scrapeStatus.innerHTML = `<div class="loader"></div>Scraping 0 / ${rows.length}...`;
         
-        const scrapePromises = rows.map(row => scrapeSingleCard(row).then(() => {
+        for (const row of rows) {
+            await scrapeSingleCard(row);
             processedCount++;
             scrapeStatus.innerHTML = `<div class="loader"></div>Scraping ${processedCount} / ${rows.length}...`;
-        }));
-
-        await Promise.all(scrapePromises);
+        }
         
         scrapeAllBtn.disabled = false;
         downloadCsvBtn.disabled = false;
@@ -193,3 +198,4 @@ document.addEventListener('DOMContentLoaded', () => {
         scrapeStatus.textContent = 'Status: CSV has been downloaded!';
     });
 });
+

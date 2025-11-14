@@ -138,6 +138,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     updateSummaryTotals();
 
+    if (switchViewBtn) {
+        switchViewBtn.dataset.pending = 'true';
+        switchViewBtn.setAttribute('aria-disabled', 'true');
+        switchViewBtn.addEventListener('click', (event) => {
+            if (switchViewBtn.dataset.pending === 'true') {
+                event.preventDefault();
+            }
+        });
+    }
+
     const buylistModal = window.createBuylistModal({
         modal: document.getElementById('buylist-modal'),
         formatCurrency,
@@ -709,14 +719,16 @@ document.addEventListener('DOMContentLoaded', () => {
         totalCardKingdomBuylistValue = 0;
         updateSummaryTotals();
         // Loop through each card individually
-        for (const card of allCards) {
+        for (let index = 0; index < allCards.length; index += 1) {
+            const card = allCards[index];
             card._tcgContribution = 0;
             card._ckBuylistContribution = 0;
             // Wait for the details of the current card to be fetched and processed
             await fetchSingleCardDetails(card);
 
-            document.getElementById('myBar').style.width = `${((allCards.indexOf(card) + 1) / allCards.length) * 100}%`;
-            progressLabel.textContent = `Loading card ${allCards.indexOf(card) + 1} of ${allCards.length}`;
+            const progress = ((index + 1) / allCards.length) * 100;
+            document.getElementById('myBar').style.width = `${progress}%`;
+            progressLabel.textContent = `Loading card ${index + 1} of ${allCards.length}`;
         }
     };
     
@@ -828,6 +840,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }));
             
             switchViewBtn.href = `/binder/${listId}`;
+            switchViewBtn.dataset.pending = 'false';
+            switchViewBtn.removeAttribute('aria-disabled');
 
             buylistModal.init({
                 contextId: listId,

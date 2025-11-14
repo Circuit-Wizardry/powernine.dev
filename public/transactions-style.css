@@ -17,11 +17,14 @@
 
 /* --- Basic Body & Layout --- */
 body {
-    background: radial-gradient(120% 120% at 50% 0%, #13203d 0%, #080d1b 60%, #030610 100%);
+    background:
+        radial-gradient(circle at 8% 10%, rgba(124, 58, 237, 0.25), transparent 45%),
+        radial-gradient(circle at 92% 0%, rgba(34, 211, 238, 0.2), transparent 52%),
+        #050812;
     color: var(--text-color);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: var(--font-family-base);
     margin: 0;
-    padding: 32px;
+    padding: clamp(24px, 4vw, 48px);
     box-sizing: border-box;
 }
 
@@ -29,47 +32,42 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 24px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 32px;
+    padding: 28px clamp(18px, 3vw, 36px);
+    border-bottom: none;
+    background: var(--surface-color);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 28px;
+    box-shadow: var(--card-shadow);
+    position: relative;
+    overflow: hidden;
+}
+
+.header::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 90% 0%, rgba(139, 92, 246, 0.25), transparent 60%);
+    pointer-events: none;
 }
 
 .header h1 {
     margin: 0;
+    position: relative;
+    z-index: 1;
 }
 
 .header-actions {
     display: flex;
     gap: 12px;
+    position: relative;
+    z-index: 1;
 }
 
-.action-btn {
-    background-color: var(--primary-color);
-    color: var(--bg-color);
-    border: none;
-    border-radius: 6px;
-    padding: 10px 18px;
-    font-weight: bold;
-    cursor: pointer;
-    transition: background-color 0.2s;
-}
-
-.action-btn:hover {
-    background-color: rgba(96,165,250,0.65);
-}
-
-.back-button {
-    background-color: rgba(12,19,32,0.75);
-    color: var(--text-color);
-    text-decoration: none;
-    padding: 10px 18px;
-    border-radius: 6px;
-    font-weight: bold;
-    transition: background-color 0.2s;
-}
-
-.back-button:hover {
-    background-color: #4a4a4a;
+.header-actions .action-btn,
+.header-actions .back-button {
+    min-height: 46px;
+    font-size: 0.95rem;
 }
 
 /* --- Transaction List Styling --- */
@@ -137,7 +135,8 @@ body {
     z-index: 1000;
     left: 0; top: 0;
     width: 100%; height: 100%;
-    background-color: rgba(0,0,0,0.7);
+    background-color: rgba(4, 7, 20, 0.85);
+    backdrop-filter: blur(8px);
     display: flex;
     justify-content: center;
     align-items: center;
@@ -146,25 +145,38 @@ body {
 .modal-content {
     background-color: var(--surface-color);
     padding: 24px;
-    border-radius: 12px;
+    border-radius: 24px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
     max-width: 800px;
     width: 90%;
     max-height: 90vh;
     overflow-y: auto;
     position: relative;
-    box-shadow: 0 5px 25px rgba(0,0,0,0.5);
+    box-shadow: var(--card-shadow);
 }
 
 .close-button {
     position: absolute;
-    top: 15px; right: 20px;
-    color: var(--muted-color);
-    font-size: 28px;
-    font-weight: bold;
+    top: 16px;
+    right: 20px;
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    color: var(--text-color);
+    font-size: 1.5rem;
+    font-weight: 600;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.05);
     cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease;
 }
 
-.close-button:hover { color: white; }
+.close-button:hover {
+    color: var(--primary-bright);
+    background: rgba(255, 255, 255, 0.12);
+}
 
 /* --- Form & Details Styling --- */
 #modal-content-body h2 {
