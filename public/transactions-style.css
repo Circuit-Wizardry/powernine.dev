@@ -92,10 +92,22 @@ body {
 
 .transaction-item.profit { border-color: var(--success-color); }
 .transaction-item.loss { border-color: var(--danger-color); }
+.transaction-item.unknown { border-color: var(--warning-color); }
+.transaction-item.manapool-import {
+    border-color: var(--warning-color);
+    box-shadow: 0 8px 20px rgba(251, 191, 36, 0.2);
+}
 
 .transaction-info {
     display: flex;
     flex-direction: column;
+}
+
+.transaction-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
 .transaction-info strong {
@@ -112,6 +124,23 @@ body {
     font-size: 0.9em;
 }
 
+.transaction-badge {
+    font-size: 0.7em;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: var(--surface-soft);
+    color: var(--muted-strong);
+}
+
+.transaction-badge.manapool-badge {
+    border-color: rgba(251, 191, 36, 0.45);
+    background: rgba(251, 191, 36, 0.15);
+    color: var(--warning-color);
+}
+
 .transaction-profit {
     font-size: 1.5em;
     font-weight: bold;
@@ -121,6 +150,7 @@ body {
 
 .transaction-profit.profit { color: var(--success-color); }
 .transaction-profit.loss { color: var(--danger-color); }
+.transaction-profit.unknown { color: var(--warning-color); }
 
 .empty-list-message, .error {
     text-align: center;
@@ -307,16 +337,44 @@ hr { border-color: var(--border-color); opacity: 0.5; }
     grid-template-columns: 1fr 1fr;
     gap: 24px;
 }
+
+.info-banner {
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--surface-soft);
+    font-size: 0.85rem;
+    color: var(--muted-strong);
+}
+
+.info-banner.manapool-banner {
+    border-color: rgba(251, 191, 36, 0.4);
+    background: rgba(251, 191, 36, 0.12);
+    color: var(--warning-color);
+    font-weight: 600;
+}
+
 .price-line {
     display: flex;
     justify-content: space-between;
     padding: 6px 0;
+}
+.price-line.item-line span {
+    display: flex;
+    flex-direction: column;
+}
+.price-line.item-line span small {
+    color: var(--muted-color);
+    font-size: 0.75em;
+    margin-top: 2px;
 }
 .price-line span:first-child { color: var(--muted-color); }
 .price-line span:last-child { font-weight: bold; }
 .price-line.total { font-size: 1.2em; font-weight: bold; }
 .profit { color: var(--success-color); }
 .loss { color: var(--danger-color); }
+.unknown { color: var(--warning-color); }
 .packing-slip-viewer {
     width: 100%;
     height: 500px;

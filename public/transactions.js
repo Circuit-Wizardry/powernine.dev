@@ -1,4 +1,4 @@
-﻿document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', () => {
     if (!window.cardUtils) {
         console.error('cardUtils utilities are not available.');
         return;
@@ -32,7 +32,7 @@
         if (detailRequestQueue.length === 0) {
             isDetailRequestProcessing = false;
             addTransactionBtn.disabled = false;
-            addTransactionBtn.textContent = '＋ Add Transaction';
+            addTransactionBtn.textContent = '+ Add Transaction';
             console.log("All inventory details loaded.");
             return;
         }
@@ -95,7 +95,8 @@
             return;
         }
         transactionListContainer.innerHTML = transactions.map(t => {
-            const profitClass = t.netProfit >= 0 ? 'profit' : 'loss';
+            const hasUnknownCosts = Array.isArray(t.items) && t.items.some(item => !item.pricePaid);
+            const profitClass = hasUnknownCosts ? 'unknown' : (t.netProfit >= 0 ? 'profit' : 'loss');
             const profitSign = t.netProfit >= 0 ? '+' : '';
             const primaryItem = t.items[0] || {};
             const title = t.items.length > 1
@@ -104,15 +105,28 @@
             const subtitle = t.items.length > 1
                 ? `Total Sale: $${t.totalSalePrice.toFixed(2)}`
                 : escapeHtml(`${primaryItem.condition || ''} ${primaryItem.foilType && primaryItem.foilType !== 'normal' ? primaryItem.foilType : ''}`.trim());
+            const subtitleText = subtitle || 'N/A';
             const platformLabel = escapeHtml(t.platform || 'Unknown');
             const dateLabel = formatDate(t.soldAt);
+            const isManaPoolOrder = Boolean(t.manapoolOrderId);
+            const rowClasses = ['transaction-item', profitClass];
+            if (isManaPoolOrder) rowClasses.push('manapool-import');
+            const badge = isManaPoolOrder
+                ? '<span class="transaction-badge manapool-badge">ManaPool Order</span>'
+                : '';
+            const platformDisplay = isManaPoolOrder
+                ? `${platformLabel} (Imported)`
+                : platformLabel;
             return `
-                <div class="transaction-item ${profitClass}" data-id="${escapeHtml(t.id)}">
+                <div class="${rowClasses.join(' ')}" data-id="${escapeHtml(t.id)}">
                     <div class="transaction-info">
-                        <strong>${title}</strong>
-                        <small>${subtitle}</small>
+                        <div class="transaction-title-row">
+                            <strong>${title}</strong>
+                            ${badge}
+                        </div>
+                        <small>${subtitleText}</small>
                     </div>
-                    <div class="transaction-platform">${platformLabel}</div>
+                    <div class="transaction-platform">${platformDisplay}</div>
                     <div class="transaction-date">${dateLabel}</div>
                     <div class="transaction-profit ${profitClass}">${profitSign}$${t.netProfit.toFixed(2)}</div>
                 </div>
@@ -183,7 +197,7 @@
                     .map(item => ({
                         id: item.id,
                         name: item.name,
-                        set_name: `${item.setCode?.toUpperCase() || ''} � ${item.condition}`.trim(),
+                        set_name: `${item.setCode?.toUpperCase() || ''} | ${item.condition}`.trim(),
                         collector_number: `Qty: ${item.quantity}`,
                         image_small: item.imageUrl || null,
                     }));
@@ -299,22 +313,55 @@
 
     const openViewModal = (transaction) => {
         disposeInventorySearchWidget();
-        const totalPurchasePrice = transaction.items.reduce((acc, item) => acc + item.pricePaid, 0);
+        const totalPurchasePrice = transaction.items.reduce((acc, item) => {
+            const qty = Number(item.quantity) || 1;
+            const unitCost = Number(item.pricePaid) || 0;
+            return acc + (unitCost * qty);
+        }, 0);
+        const hasUnknownCosts = transaction.items.some(item => !item.pricePaid);
         const fees = calculateFees(transaction.totalSalePrice, transaction.platform);
-        const derivedPackaging = Math.max(0, Number((transaction.totalSalePrice + transaction.shippingCost - totalPurchasePrice - fees - transaction.netProfit).toFixed(2)));
+        const purchaseCostForCalculation = hasUnknownCosts ? 0 : totalPurchasePrice;
+        const derivedPackaging = Math.max(0, Number((transaction.totalSalePrice + transaction.shippingCost - purchaseCostForCalculation - fees - transaction.netProfit).toFixed(2)));
         const packagingCost = Number.isFinite(transaction.packagingCost)
             ? transaction.packagingCost
             : derivedPackaging;
         const platformLabel = escapeHtml(transaction.platform || 'Unknown');
-        const itemsHtml = transaction.items.map(item => `<div class="price-line"><span>${escapeHtml(item.name)}</span><span>$${item.salePrice.toFixed(2)}</span></div>`).join('');
+        const manaPoolBanner = transaction.manapoolOrderId
+            ? `<div class="info-banner manapool-banner">Imported from ManaPool order #${escapeHtml(transaction.manapoolOrderId)}</div>`
+            : '';
+        const itemsHtml = transaction.items.map(item => {
+            const qty = Number(item.quantity) || 1;
+            const unitPrice = Number(item.salePrice) || 0;
+            const totalPrice = unitPrice * qty;
+            const descriptors = [
+                item.condition,
+                item.foilType && item.foilType !== 'normal' ? item.foilType : null
+            ].filter(Boolean).join(' | ');
+            const meta = [descriptors, `Qty ${qty}`].filter(Boolean).join(' | ');
+            const totalLabel = `$${totalPrice.toFixed(2)}${qty > 1 ? ` (${qty} x $${unitPrice.toFixed(2)})` : ''}`;
+            return `
+                <div class="price-line item-line">
+                    <span>
+                        ${escapeHtml(item.name)}
+                        <small>${meta}</small>
+                    </span>
+                    <span>${totalLabel}</span>
+                </div>
+            `;
+        }).join('');
         const packagingLine = packagingCost > 0
             ? `<div class="price-line"><span>Packaging:</span><span class="loss">- $${packagingCost.toFixed(2)}</span></div>`
             : `<div class="price-line"><span>Packaging:</span><span>$0.00</span></div>`;
+        const purchaseLine = hasUnknownCosts
+            ? `<div class="price-line"><span>Purchase Price:</span><span class="unknown">Unknown</span></div>`
+            : `<div class="price-line"><span>Total Purchase Price:</span><span class="loss">- $${totalPurchasePrice.toFixed(2)}</span></div>`;
+        const netClass = hasUnknownCosts ? 'unknown' : (transaction.netProfit >= 0 ? 'profit' : 'loss');
         modalContentBody.innerHTML = `
             <h2>Transaction Details</h2>
             <div class="details-grid">
                 <div class="info-block">
                     <h3>Cost Breakdown</h3>
+                    ${manaPoolBanner}
                     <div class="price-line"><span>Sold On:</span><span>${formatDate(transaction.soldAt)}</span></div>
                     <div class="price-line"><span>Platform:</span><span>${platformLabel}</span></div>
                     <hr>
@@ -322,11 +369,11 @@
                     <div class="price-line"><span>Shipping Cost:</span><span class="profit">+ $${transaction.shippingCost.toFixed(2)}</span></div>
                     <div class="price-line"><span>Platform Fees:</span><span class="loss">- $${fees.toFixed(2)}</span></div>
                     ${packagingLine}
-                    <div class="price-line"><span>Total Purchase Price:</span><span class="loss">- $${totalPurchasePrice.toFixed(2)}</span></div>
+                    ${purchaseLine}
                     <hr>
                     <div class="price-line total">
                         <span>Net Profit:</span>
-                        <span class="${transaction.netProfit >= 0 ? 'profit' : 'loss'}">$${transaction.netProfit.toFixed(2)}</span>
+                        <span class="${netClass}">$${transaction.netProfit.toFixed(2)}</span>
                     </div>
                     <button id="delete-transaction-btn" class="action-btn destructive" data-id="${transaction.id}">Delete Transaction</button>
                 </div>
@@ -362,7 +409,7 @@
             }
         });
         const totalSalePrice = stagedItems.reduce((acc, item) => acc + (item.salePrice * item.quantity), 0);
-        const totalPurchasePrice = stagedItems.reduce((acc, item) => acc + (item.pricePaid * item.quantity), 0);
+        const totalPurchasePrice = stagedItems.reduce((acc, item) => acc + ((item.pricePaid || 0) * item.quantity), 0);
         if (totalSalePrice === 0 && totalPurchasePrice === 0) {
             previewEl.innerHTML = '';
             return;
@@ -372,17 +419,21 @@
         const packagingValue = parseFloat(form.elements.packagingCost?.value);
         const packagingCost = Number.isFinite(packagingValue) && packagingValue >= 0 ? packagingValue : 0;
         const fees = calculateFees(totalSalePrice, platform);
+        const hasUnknownCosts = stagedItems.some(item => !item.pricePaid);
 
         const grossRevenue = totalSalePrice + customerPaidShipping;
         const totalCost = totalPurchasePrice + fees + packagingCost;
         const netProfit = grossRevenue - totalCost;
-        const profitClass = netProfit >= 0 ? 'profit' : 'loss';
+        const profitClass = hasUnknownCosts ? 'unknown' : (netProfit >= 0 ? 'profit' : 'loss');
+        const purchaseLine = hasUnknownCosts
+            ? '<div class="price-line"><span>Purchase Price:</span><span class="unknown">Unknown</span></div>'
+            : `<div class="price-line"><span>Total Purchase Price:</span><span class="loss">- $${totalPurchasePrice.toFixed(2)}</span></div>`;
         previewEl.innerHTML = `
             <div class="price-line"><span>Total Sale Price:</span><span>$${totalSalePrice.toFixed(2)}</span></div>
             <div class="price-line"><span>Shipping:</span><span class="profit">+ $${customerPaidShipping.toFixed(2)}</span></div>
             <div class="price-line"><span>Platform Fees:</span><span class="loss">- $${fees.toFixed(2)}</span></div>
             <div class="price-line"><span>Packaging:</span><span class="loss">- $${packagingCost.toFixed(2)}</span></div>
-            <div class="price-line"><span>Total Purchase Price:</span><span class="loss">- $${totalPurchasePrice.toFixed(2)}</span></div>
+            ${purchaseLine}
             <hr>
             <div class="price-line total"><span>Estimated Net Profit:</span><span class="${profitClass}">$${netProfit.toFixed(2)}</span></div>
         `;
@@ -516,7 +567,7 @@
                 });
             } else {
                 addTransactionBtn.disabled = false;
-                addTransactionBtn.textContent = '＋ Add Transaction';
+                addTransactionBtn.textContent = '+ Add Transaction';
             }
         } catch (error) {
             console.error("Failed to initialize page:", error);

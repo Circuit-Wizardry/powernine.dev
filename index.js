@@ -75,103 +75,150 @@ const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READWRITE | sqlite3.OPEN_C
       (err) => {
             if (err) {
                   console.error('Error connecting to AllData.sqlite:', err.message);
+                  process.exit(1);
             } else {
                   console.log('Successfully connected to AllData.sqlite database.');
-                  
-                  // Existing table (no errors here)
-                  db.run(`
-                        CREATE TABLE IF NOT EXISTS imported_lists (
-                              id TEXT PRIMARY KEY,
-                              content TEXT NOT NULL,
-                              name TEXT,
-                              createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-                              updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-                              lastAccessedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-                              buylistSnapshot TEXT,
-                              isPermanent BOOLEAN DEFAULT 0
-                        )
-                  `);
-                  db.run(`
-                        CREATE TABLE IF NOT EXISTS inventory (
-                              id TEXT PRIMARY KEY,
-                              name TEXT NOT NULL,
-                              setCode TEXT NOT NULL,
-                              collectorNumber TEXT NOT NULL,
-                              foilType TEXT NOT NULL,
-                              pricePaid REAL NOT NULL,
-                              quantity INTEGER NOT NULL,
-                              tcgplayerId TEXT,
-                              scryfallId TEXT,
-                              createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-                              tcgLow REAL,
-                              manaPoolLow REAL,
-                              tcgLowPlusShipping REAL,
-                              pricesLastUpdatedAt DATETIME,
-                              
-                              -- NEW COLUMN --
-                              condition TEXT NOT NULL DEFAULT 'NM'
-                        )
-                  `); 
-                  db.run(`
-                        CREATE TABLE IF NOT EXISTS transactions (
-                              id TEXT PRIMARY KEY,
-                              soldAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-                              platform TEXT NOT NULL,
-                              shippingCost REAL NOT NULL,
-                              packagingCost REAL NOT NULL DEFAULT 0,
-                              totalSalePrice REAL NOT NULL,
-                              netProfit REAL NOT NULL,
-                              packingSlipPath TEXT
-                        )
-                  `);
 
-                  db.run(`
-                        CREATE TABLE IF NOT EXISTS transaction_items (
-                              id INTEGER PRIMARY KEY AUTOINCREMENT,
-                              transactionId TEXT NOT NULL,
-                              inventoryId TEXT NOT NULL,
-                              salePrice REAL NOT NULL,
-                              quantity INTEGER NOT NULL DEFAULT 1,
-                              FOREIGN KEY (transactionId) REFERENCES transactions (id) ON DELETE CASCADE,
-                              FOREIGN KEY (inventoryId) REFERENCES inventory (id)
-                        )
-                  `);
-                  db.run(`
-                        CREATE TABLE IF NOT EXISTS inventory_metadata (
-                              id TEXT PRIMARY KEY,
-                              buylistSnapshot TEXT,
-                              updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
-                        )
-                  `);
+                  const columnEnsureTasks = [];
+                  db.serialize(() => {
+                        db.run(`
+                              CREATE TABLE IF NOT EXISTS imported_lists (
+                                    id TEXT PRIMARY KEY,
+                                    content TEXT NOT NULL,
+                                    name TEXT,
+                                    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                    updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                    lastAccessedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                    buylistSnapshot TEXT,
+                                    isPermanent BOOLEAN DEFAULT 0
+                              )
+                        `);
+                        db.run(`
+                              CREATE TABLE IF NOT EXISTS inventory (
+                                    id TEXT PRIMARY KEY,
+                                    name TEXT NOT NULL,
+                                    setCode TEXT NOT NULL,
+                                    collectorNumber TEXT NOT NULL,
+                                    foilType TEXT NOT NULL,
+                                    pricePaid REAL NOT NULL,
+                                    quantity INTEGER NOT NULL,
+                                    tcgplayerId TEXT,
+                                    scryfallId TEXT,
+                                    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                    tcgLow REAL,
+                                    tcgMarketPrice REAL,
+                                    manaPoolLow REAL,
+                                    tcgLowPlusShipping REAL,
+                                    pricesLastUpdatedAt DATETIME,
+                                    
+                                    -- NEW COLUMN --
+                                    condition TEXT NOT NULL DEFAULT 'NM'
+                              )
+                        `); 
+                        db.run(`
+                              CREATE TABLE IF NOT EXISTS transactions (
+                                    id TEXT PRIMARY KEY,
+                                    soldAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                    platform TEXT NOT NULL,
+                                    shippingCost REAL NOT NULL,
+                                    packagingCost REAL NOT NULL DEFAULT 0,
+                                    totalSalePrice REAL NOT NULL,
+                                    netProfit REAL NOT NULL,
+                                    packingSlipPath TEXT,
+                                    manapoolOrderId TEXT UNIQUE
+                              )
+                        `);
 
-                  cleanupTemporaryLists();
-                  ensureColumn(db, 'imported_lists', 'name', 'TEXT');
-                  ensureColumn(db, 'imported_lists', 'updatedAt', 'DATETIME DEFAULT CURRENT_TIMESTAMP');
-                  ensureColumn(db, 'imported_lists', 'lastAccessedAt', 'DATETIME DEFAULT CURRENT_TIMESTAMP');
-                  ensureColumn(db, 'imported_lists', 'buylistSnapshot', 'TEXT');
-                  ensureColumn(db, 'inventory', 'scryfallId', 'TEXT');
-                  ensureColumn(db, 'inventory', 'tcgLowPlusShipping', 'REAL');
-                  ensureColumn(db, 'transactions', 'packagingCost', 'REAL DEFAULT 0');
+                        db.run(`
+                              CREATE TABLE IF NOT EXISTS transaction_items (
+                                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                    transactionId TEXT NOT NULL,
+                                    inventoryId TEXT NOT NULL,
+                                    salePrice REAL NOT NULL,
+                                    quantity INTEGER NOT NULL DEFAULT 1,
+                                    FOREIGN KEY (transactionId) REFERENCES transactions (id) ON DELETE CASCADE,
+                                    FOREIGN KEY (inventoryId) REFERENCES inventory (id)
+                              )
+                        `);
+                        db.run(`
+                              CREATE TABLE IF NOT EXISTS inventory_metadata (
+                                    id TEXT PRIMARY KEY,
+                                    buylistSnapshot TEXT,
+                                    updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+                              )
+                        `);
+
+                        cleanupTemporaryLists();
+                        columnEnsureTasks.push(ensureColumn(db, 'imported_lists', 'name', 'TEXT'));
+                        columnEnsureTasks.push(ensureColumn(db, 'imported_lists', 'updatedAt', 'DATETIME DEFAULT CURRENT_TIMESTAMP'));
+                        columnEnsureTasks.push(ensureColumn(db, 'imported_lists', 'lastAccessedAt', 'DATETIME DEFAULT CURRENT_TIMESTAMP'));
+                        columnEnsureTasks.push(ensureColumn(db, 'imported_lists', 'buylistSnapshot', 'TEXT'));
+                        columnEnsureTasks.push(ensureColumn(db, 'inventory', 'scryfallId', 'TEXT'));
+                        columnEnsureTasks.push(ensureColumn(db, 'inventory', 'tcgLowPlusShipping', 'REAL'));
+                        columnEnsureTasks.push(ensureColumn(db, 'inventory', 'tcgMarketPrice', 'REAL'));
+                        columnEnsureTasks.push(ensureColumn(db, 'transactions', 'manapoolOrderId', 'TEXT'));
+                        columnEnsureTasks.push(ensureColumn(db, 'transactions', 'packagingCost', 'REAL DEFAULT 0'));
+                  });
+
+                  const waitForColumns = columnEnsureTasks.length
+                        ? Promise.allSettled(columnEnsureTasks)
+                        : Promise.resolve([]);
+
+                  waitForColumns.then(async (results) => {
+                        const failures = results.filter(result => result.status === 'rejected');
+                        if (failures.length) {
+                              failures.forEach(({ reason }) => {
+                                    console.error('[db] Column ensure failure:', reason?.message || reason);
+                              });
+                        }
+                        try {
+                              await ensureManaPoolIndex(db);
+                        } catch (indexErr) {
+                              console.error('[db] Failed ensuring ManaPool index:', indexErr.message);
+                        }
+                        startServerOnce();
+                  });
             }
       }
 );
 
 function ensureColumn(database, table, columnName, definition) {
-      database.all(`PRAGMA table_info(${table})`, (err, rows) => {
-            if (err) {
-                  console.error(`[db] Failed to inspect ${table}:`, err.message);
-                  return;
-            }
-            const hasColumn = rows.some(row => row.name === columnName);
-            if (!hasColumn) {
+      return new Promise((resolve, reject) => {
+            database.all(`PRAGMA table_info(${table})`, (err, rows) => {
+                  if (err) {
+                        console.error(`[db] Failed to inspect ${table}:`, err.message);
+                        return reject(err);
+                  }
+                  const hasColumn = rows.some(row => row.name === columnName);
+                  if (hasColumn) {
+                        return resolve(false);
+                  }
                   database.run(`ALTER TABLE ${table} ADD COLUMN ${columnName} ${definition}`, (alterErr) => {
                         if (alterErr) {
+                              if (/duplicate column name/i.test(alterErr.message)) {
+                                    return resolve(false);
+                              }
                               console.error(`[db] Failed adding ${columnName} to ${table}:`, alterErr.message);
-                        } else {
-                              console.log(`[db] Added missing column ${columnName} to ${table}.`);
+                              return reject(alterErr);
                         }
+                        console.log(`[db] Added missing column ${columnName} to ${table}.`);
+                        resolve(true);
                   });
-            }
+            });
+      });
+}
+
+function ensureManaPoolIndex(database) {
+      return new Promise((resolve, reject) => {
+            database.run(
+                  `CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_manapool ON transactions(manapoolOrderId) WHERE manapoolOrderId IS NOT NULL`,
+                  (err) => {
+                        if (err) {
+                              return reject(err);
+                        }
+                        resolve();
+                  }
+            );
       });
 }
 
@@ -225,7 +272,12 @@ cron.schedule('0 12 * * *', () => {
 });
 
 // --- Server Start ---
-app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-});
+function startServerOnce() {
+      if (startServerOnce.started) return;
+      startServerOnce.started = true;
+      app.listen(PORT, () => {
+            console.log(`Server running on http://localhost:${PORT}`);
+      });
+}
+startServerOnce.started = false;
 

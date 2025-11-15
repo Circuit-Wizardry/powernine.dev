@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ManaPool Integration -- powernine.dev</title>
+    <link rel="icon" href="/media/favicon.png" type="image/png">
+    <link rel="stylesheet" href="/theme.css">
+    <link rel="stylesheet" href="/manapool.css">
+</head>
+<body>
+    <main class="mp-shell">
+        <header class="mp-header">
+            <div>
+                <p class="eyebrow">Integrations</p>
+                <h1>ManaPool Integration</h1>
+                <p class="lede">Connect, audit, and synchronize your powernine.dev inventory with ManaPool.</p>
+            </div>
+            <div class="header-actions">
+                <button type="button" class="secondary-btn" id="refresh-status-btn">Refresh Status</button>
+                <a href="/" class="back-button">Home</a>
+            </div>
+        </header>
+
+        <section class="mp-card" id="status-card">
+            <div class="status-summary">
+                <div>
+                    <p class="label">Connection</p>
+                    <p class="value" id="status-connection">--</p>
+                </div>
+                <div>
+                    <p class="label">Local Inventory</p>
+                    <p class="value" id="status-local-count">--</p>
+                </div>
+                <div>
+                    <p class="label">Remote Inventory</p>
+                    <p class="value" id="status-remote-count">--</p>
+                </div>
+                <div>
+                    <p class="label">Last Sync</p>
+                    <p class="value" id="status-last-sync">--</p>
+                </div>
+            </div>
+            <p class="status-message" id="status-message"></p>
+        </section>
+
+        <section class="mp-grid">
+            <article class="mp-card">
+                <h2>Inventory Sync</h2>
+                <p>Pull the latest inventory snapshot from ManaPool or push your local powernine.dev inventory upstream.</p>
+                <div class="button-row">
+                    <button type="button" class="primary-btn" id="pull-inventory-btn">Pull from ManaPool</button>
+                    <button type="button" class="secondary-btn" id="push-inventory-btn">Push Local Inventory</button>
+                </div>
+            </article>
+
+            <article class="mp-card">
+                <h2>Orders &amp; Transactions</h2>
+                <p>Fetch recent ManaPool orders and import them into your transaction history.</p>
+                <div class="button-row">
+                    <button type="button" class="primary-btn" id="pull-orders-btn">Pull ManaPool Orders</button>
+                </div>
+            </article>
+
+            <article class="mp-card">
+                <h2>Bulk Pricing Tools</h2>
+                <form id="bulk-price-form" class="bulk-form">
+                    <label>
+                        Strategy
+                        <select id="bulk-strategy">
+                            <option value="manaPoolLowPercent">5% under ManaPool low</option>
+                            <option value="manaPoolLowCents">25 cents under ManaPool low</option>
+                            <option value="tcgMarketMatch">Match TCG Market</option>
+                        </select>
+                    </label>
+                    <label id="bulk-adjustment-wrapper">
+                        Adjustment Value
+                        <input type="number" id="bulk-adjustment" step="0.01" placeholder="5">
+                    </label>
+                    <button type="submit" class="primary-btn">Preview Adjustments</button>
+                </form>
+            </article>
+        </section>
+
+        <section class="mp-card">
+            <div class="section-header">
+                <h2>Discrepancies</h2>
+                <button type="button" class="ghost-btn" id="refresh-discrepancies-btn">Refresh</button>
+            </div>
+            <p class="eyebrow">Compare counts and pricing across platforms.</p>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Card</th>
+                            <th>Set</th>
+                            <th>Local Qty</th>
+                            <th>ManaPool Qty</th>
+                            <th>Local Price</th>
+                            <th>ManaPool Price</th>
+                        </tr>
+                    </thead>
+                    <tbody id="discrepancy-table-body">
+                        <tr><td colspan="6" class="empty">No discrepancies to display.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="mp-card">
+            <div class="section-header">
+                <h2>Latest Actions</h2>
+                <button type="button" class="ghost-btn" id="clear-log-btn">Clear Log</button>
+            </div>
+            <ul id="action-log" class="action-log"></ul>
+        </section>
+    </main>
+
+    <div id="unmatched-modal" class="mp-modal" hidden>
+        <div class="mp-modal-dialog">
+            <button type="button" class="mp-modal-close" data-close-unmatched>&times;</button>
+            <h2>Inventory Needed</h2>
+            <p>Some ManaPool orders could not be imported because matching inventory entries were not found. Add these cards (matching set, collector number, finish, condition, and purchase price) to your inventory, then try pulling orders again.</p>
+            <div id="unmatched-list" class="unmatched-list"></div>
+            <button type="button" class="primary-btn" data-close-unmatched>Okay, I will fix this</button>
+        </div>
+    </div>
+
+    <div id="push-modal" class="mp-modal" hidden>
+        <div class="mp-modal-dialog push-modal-dialog">
+            <button type="button" class="mp-modal-close" data-close-push>&times;</button>
+            <h2>Push Inventory to ManaPool</h2>
+            <p class="modal-lede">Select individual cards to test the sync, or push every eligible card at once.</p>
+            <div class="push-modal-controls">
+                <label class="offset-field">
+                    Cents under ManaPool low
+                    <input type="number" id="price-offset" min="0" step="1" value="1">
+                </label>
+                <div class="push-modal-actions">
+                    <button type="button" class="primary-btn" id="push-all-confirm-btn">Push All Cards</button>
+                    <button type="button" class="ghost-btn" data-close-push>Close</button>
+                </div>
+            </div>
+            <div class="push-progress" id="push-progress" hidden>
+                <div class="push-progress-bar">
+                    <div class="push-progress-bar-fill" id="push-progress-bar-fill"></div>
+                </div>
+                <p id="push-progress-text">Preparing push...</p>
+            </div>
+            <div class="table-wrapper push-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Card</th>
+                            <th>Set</th>
+                            <th>Qty</th>
+                            <th>Price Basis</th>
+                            <th>Scryfall ID</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="push-inventory-table-body">
+                        <tr><td colspan="6" class="empty">Loading inventory...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <script src="/manapool.js"></script>
+</body>
+</html>
+

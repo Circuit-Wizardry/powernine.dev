@@ -13,6 +13,18 @@ import { chromium } from 'playwright'; // Import Playwright
 import { scrapeTcgplayerData } from '../scrapers/tcgplayer.js';
 import { scrapeManaPoolListings } from '../scrapers/manapool.js';
 import { scrapeStarCityGamesBuylist } from '../scrapers/starcitygames.js';
+import {
+    getAccountStatus as getManaPoolStatus,
+    pullInventoryFromManaPool,
+    pushInventoryToManaPool,
+    pushInventoryItemsToManaPool,
+    pullOrdersFromManaPool,
+    bulkAdjustPrices,
+    getInventoryDiscrepancies,
+    importOrdersToTransactions,
+    forceImportOrder,
+    cleanupRemoteInventory
+} from './manapool-service.js';
 
 const FIXED_SHIPPING_EXPENSE = 0; // Default packaging cost when none supplied
 
@@ -24,6 +36,40 @@ const normalizeManaPoolSlug = (cardName = '') => {
         .replace(/[^a-z0-9\s-]/g, '')
         .trim()
         .replace(/\s+/g, '-');
+};
+
+const getLatestFromPriceHistory = (history) => {
+    if (!history || typeof history !== 'object') return null;
+    const dates = Object.keys(history);
+    if (!dates.length) return null;
+    dates.sort((a, b) => new Date(b) - new Date(a));
+    return history[dates[0]];
+};
+
+const fetchTcgMarketPriceFromDb = (db, { setCode, collectorNumber, foilType = 'normal' }) => {
+    return new Promise((resolve) => {
+        if (!setCode || !collectorNumber) return resolve(null);
+        const sql = `
+            SELECT price_json FROM price_history
+            WHERE uuid = (
+                SELECT uuid FROM cards WHERE setCode = ? AND number = ? LIMIT 1
+            )
+        `;
+        db.get(sql, [setCode.toUpperCase(), collectorNumber], (err, row) => {
+            if (err || !row) {
+                if (err) console.error('[inventory] price lookup failed:', err.message);
+                return resolve(null);
+            }
+            try {
+                const priceJson = JSON.parse(row.price_json);
+                const history = priceJson?.paper?.tcgplayer?.retail?.[foilType] || priceJson?.paper?.tcgplayer?.retail?.normal;
+                resolve(getLatestFromPriceHistory(history));
+            } catch (parseErr) {
+                console.error('[inventory] price JSON parse error:', parseErr.message);
+                resolve(null);
+            }
+        });
+    });
 };
 
 const calculateFees = (salePrice, platform) => {
@@ -231,6 +277,122 @@ export default function(db, options = {}) {
         });
     });
 
+    router.get('/manapool/status', async (req, res) => {
+        try {
+            const status = await getManaPoolStatus(db);
+            res.json(status);
+        } catch (error) {
+            console.error('[manapool] status error:', error);
+            res.status(500).json({ error: error.message || 'Failed to load ManaPool status.' });
+        }
+    });
+
+    router.post('/manapool/inventory/pull', async (_req, res) => {
+        try {
+            const payload = await pullInventoryFromManaPool();
+            res.json(payload);
+        } catch (error) {
+            console.error('[manapool] pull inventory error:', error);
+            res.status(500).json({ error: error.message || 'Failed pulling ManaPool inventory.' });
+        }
+    });
+
+    router.post('/manapool/inventory/push', express.json(), async (req, res) => {
+        try {
+            const priceOffsetCents = Number.isFinite(Number(req.body?.priceOffsetCents))
+                ? Number(req.body.priceOffsetCents)
+                : 1;
+            const result = await pushInventoryToManaPool(db, { priceOffsetCents, deleteMissing: true });
+            res.json(result);
+        } catch (error) {
+            console.error('[manapool] push inventory error:', error);
+            res.status(500).json({ error: error.message || 'Failed pushing inventory to ManaPool.' });
+        }
+    });
+
+    router.post('/manapool/inventory/push-item', express.json(), async (req, res) => {
+        try {
+            const bodyIds = Array.isArray(req.body?.inventoryIds) ? req.body.inventoryIds : [];
+            const singleId = req.body?.inventoryId ? [req.body.inventoryId] : [];
+            const ids = [...bodyIds, ...singleId].filter(Boolean);
+            if (!ids.length) {
+                return res.status(400).json({ error: 'inventoryId is required.' });
+            }
+            const priceOffsetCents = Number.isFinite(Number(req.body?.priceOffsetCents))
+                ? Number(req.body.priceOffsetCents)
+                : 1;
+            const result = await pushInventoryItemsToManaPool(db, ids, { priceOffsetCents });
+            res.json(result);
+        } catch (error) {
+            console.error('[manapool] push inventory item error:', error);
+            res.status(500).json({ error: error.message || 'Failed pushing inventory item to ManaPool.' });
+        }
+    });
+
+    router.post('/manapool/inventory/cleanup', async (_req, res) => {
+        try {
+            const result = await cleanupRemoteInventory(db);
+            res.json(result);
+        } catch (error) {
+            console.error('[manapool] cleanup error:', error);
+            res.status(500).json({ error: error.message || 'Failed cleaning up ManaPool inventory.' });
+        }
+    });
+
+    router.post('/manapool/orders/pull', express.json(), async (req, res) => {
+        try {
+            const since = req.body?.since || req.query?.since;
+            const payload = await pullOrdersFromManaPool({ since });
+            const importResult = await importOrdersToTransactions(db, payload.orders || []);
+            res.json({
+                source: payload.source,
+                pulledAt: payload.pulledAt,
+                imported: importResult.imported,
+                skipped: importResult.skipped,
+                errors: importResult.errors,
+                unmatchedOrders: importResult.unmatchedOrders,
+                totalFetched: (payload.orders || []).length
+            });
+        } catch (error) {
+            console.error('[manapool] orders error:', error);
+            res.status(500).json({ error: error.message || 'Failed pulling ManaPool orders.' });
+        }
+    });
+
+    router.post('/manapool/orders/force-import', express.json(), async (req, res) => {
+        try {
+            const orderId = req.body?.orderId;
+            if (!orderId) {
+                return res.status(400).json({ error: 'orderId is required.' });
+            }
+            const result = await forceImportOrder(db, orderId);
+            res.json(result);
+        } catch (error) {
+            console.error('[manapool] force import error:', error);
+            res.status(500).json({ error: error.message || 'Failed to save ManaPool order.' });
+        }
+    });
+
+    router.post('/manapool/prices/bulk', express.json(), async (req, res) => {
+        try {
+            const preview = await bulkAdjustPrices(req.body?.strategy, db);
+            res.json(preview);
+        } catch (error) {
+            console.error('[manapool] bulk pricing error:', error);
+            res.status(500).json({ error: error.message || 'Failed to generate bulk pricing preview.' });
+        }
+    });
+
+    router.get('/manapool/discrepancies', async (_req, res) => {
+        try {
+            const discrepancies = await getInventoryDiscrepancies(db);
+            res.json(discrepancies);
+        } catch (error) {
+            console.error('[manapool] discrepancy error:', error);
+            res.status(500).json({ error: error.message || 'Failed to load discrepancies.' });
+        }
+    });
+
     // NEW: PUT endpoint to save scraped prices for an item
     router.put('/inventory/:id/prices', express.json(), (req, res) => {
         const { id } = req.params;
@@ -252,15 +414,19 @@ export default function(db, options = {}) {
 
 
     // POST a new item to inventory
-    router.post('/inventory', express.json(), (req, res) => {
+    router.post('/inventory', express.json(), async (req, res) => {
         // Add 'condition' to the destructured properties
         const { name, setCode, collectorNumber, foilType, pricePaid, quantity, tcgplayerId, condition, scryfallId } = req.body;
         const id = randomUUID();
-        // Add the new column to the INSERT statement
-        const sql = `INSERT INTO inventory (id, name, setCode, collectorNumber, foilType, pricePaid, quantity, tcgplayerId, condition, scryfallId)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-        // Add the condition to the parameters array
-        const params = [id, name, setCode, collectorNumber, foilType, pricePaid, quantity, tcgplayerId, condition || 'NM', scryfallId];
+        let tcgMarketPrice = null;
+        try {
+            tcgMarketPrice = await fetchTcgMarketPriceFromDb(db, { setCode, collectorNumber, foilType: foilType || 'normal' });
+        } catch (error) {
+            console.error('[inventory] Failed to fetch tcgMarketPrice:', error.message);
+        }
+        const sql = `INSERT INTO inventory (id, name, setCode, collectorNumber, foilType, pricePaid, quantity, tcgplayerId, condition, scryfallId, tcgMarketPrice)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        const params = [id, name, setCode, collectorNumber, foilType, pricePaid, quantity, tcgplayerId, condition || 'NM', scryfallId, tcgMarketPrice];
         db.run(sql, params, function(err) {
             if (err) {
               console.error("Failed to add inventory item:", err);
@@ -283,18 +449,20 @@ export default function(db, options = {}) {
     router.get('/transactions', (req, res) => {
         const sql = `
             SELECT 
-                t.id, t.soldAt, t.platform, t.shippingCost, t.packagingCost, t.totalSalePrice, t.netProfit, t.packingSlipPath,
-                json_group_array(
-                    json_object(
-                        'name', i.name, 'setCode', i.setCode, 'condition', i.condition, 
-                        'foilType', i.foilType, 'pricePaid', i.pricePaid, 
-                        'salePrice', ti.salePrice, 'quantity', ti.quantity 
+                t.id, t.soldAt, t.platform, t.shippingCost, t.packagingCost, t.totalSalePrice, t.netProfit, t.packingSlipPath, t.manapoolOrderId,
+                COALESCE((
+                    SELECT json_group_array(
+                        json_object(
+                            'name', i.name, 'setCode', i.setCode, 'condition', i.condition, 
+                            'foilType', i.foilType, 'pricePaid', i.pricePaid, 
+                            'salePrice', ti.salePrice, 'quantity', ti.quantity 
+                        )
                     )
-                ) as items
+                    FROM transaction_items ti
+                    JOIN inventory i ON ti.inventoryId = i.id
+                    WHERE ti.transactionId = t.id
+                ), '[]') as items
             FROM transactions t
-            JOIN transaction_items ti ON t.id = ti.transactionId
-            JOIN inventory i ON ti.inventoryId = i.id
-            GROUP BY t.id
             ORDER BY t.soldAt DESC
         `;
         db.all(sql, [], (err, rows) => {

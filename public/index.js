@@ -5,6 +5,13 @@ if (inventoryManagementBtn) {
     });
 }
 
+const manapoolBtn = document.getElementById('manapool-btn');
+if (manapoolBtn) {
+    manapoolBtn.addEventListener('click', () => {
+        window.location.href = '/manapool.html';
+    });
+}
+
 const transactionHistoryBtn = document.getElementById('transaction-history-btn');
 if (transactionHistoryBtn) {
     transactionHistoryBtn.addEventListener('click', () => {

@@ -16,6 +16,67 @@ const URLS = {
     AllPricesToday: 'https://mtgjson.com/api/v5/AllPricesToday.json'
 };
 
+const getLatestFromHistory = (history) => {
+    if (!history || typeof history !== 'object') return null;
+    const dates = Object.keys(history);
+    if (!dates.length) return null;
+    dates.sort((a, b) => new Date(b) - new Date(a));
+    return history[dates[0]];
+};
+
+const fetchTcgMarketPriceForCard = (db, setCode, collectorNumber, foilType = 'normal') => {
+    return new Promise((resolve) => {
+        if (!setCode || !collectorNumber) return resolve(null);
+        const sql = `
+            SELECT price_json FROM price_history
+            WHERE uuid = (
+                SELECT uuid FROM cards WHERE setCode = ? AND number = ? LIMIT 1
+            )
+        `;
+        db.get(sql, [setCode.toUpperCase(), collectorNumber], (err, row) => {
+            if (err || !row) {
+                if (err) console.error('[daily-update] price lookup failed:', err.message);
+                return resolve(null);
+            }
+            try {
+                const priceJson = JSON.parse(row.price_json);
+                const history = priceJson?.paper?.tcgplayer?.retail?.[foilType] || priceJson?.paper?.tcgplayer?.retail?.normal;
+                resolve(getLatestFromHistory(history));
+            } catch (parseErr) {
+                console.error('[daily-update] price JSON parse error:', parseErr.message);
+                resolve(null);
+            }
+        });
+    });
+};
+
+async function refreshInventoryMarketPrices(targetDbPath) {
+    console.log('\nUpdating tcgMarketPrice for inventory items...');
+    const db = new sqlite3.Database(targetDbPath);
+    const inventoryRows = await new Promise((resolve, reject) => {
+        db.all('SELECT id, setCode, collectorNumber, foilType FROM inventory', [], (err, rows) => {
+            if (err) return reject(err);
+            resolve(rows || []);
+        });
+    });
+    let processed = 0;
+    for (const row of inventoryRows) {
+        const price = await fetchTcgMarketPriceForCard(db, row.setCode, row.collectorNumber, row.foilType || 'normal');
+        await new Promise((resolve, reject) => {
+            db.run('UPDATE inventory SET tcgMarketPrice = ? WHERE id = ?', [price ?? null, row.id], (err) => {
+                if (err) return reject(err);
+                resolve();
+            });
+        });
+        processed += 1;
+        if (processed % 250 === 0) {
+            process.stdout.write(`\r -> Updated ${processed}/${inventoryRows.length} items`);
+        }
+    }
+    console.log(`\r -> Updated ${processed}/${inventoryRows.length} items`);
+    db.close();
+}
+
 /**
  * Recursively merges properties of two objects. The source's properties overwrite the target's.
  * @param {object} target The object to merge into.
@@ -196,6 +257,8 @@ async function runDailyUpdate() {
         // --- Step 3: Update the price history ---
         await updatePriceHistory(TODAY_PRICES_PATH, TARGET_DB_PATH);
         console.log('✅ Price history merged successfully.');
+        await refreshInventoryMarketPrices(TARGET_DB_PATH);
+        console.log('�o. Inventory market prices refreshed.');
         log('Daily data refresh pipeline completed successfully.');
 
     } catch (error) {
