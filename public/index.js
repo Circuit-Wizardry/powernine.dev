@@ -12,12 +12,61 @@ if (manapoolBtn) {
     });
 }
 
-const transactionHistoryBtn = document.getElementById('transaction-history-btn');
-if (transactionHistoryBtn) {
-    transactionHistoryBtn.addEventListener('click', () => {
-        window.location.href = '/transactions.html';
+const manageFinancesBtn = document.getElementById('manage-finances-btn');
+if (manageFinancesBtn) {
+    manageFinancesBtn.addEventListener('click', () => {
+        window.location.href = '/finances.html';
     });
 }
+
+const shippingAlert = document.getElementById('shipping-alert');
+const shippingAlertText = document.getElementById('shipping-alert-text');
+const refreshShippingAlertBtn = document.getElementById('refresh-shipping-alert');
+let shippingAlertTimer = null;
+
+const hideShippingAlert = () => {
+    if (shippingAlert) shippingAlert.setAttribute('hidden', 'hidden');
+};
+
+const showShippingAlert = (count, orders = []) => {
+    if (!shippingAlert || !shippingAlertText) return;
+    const orderLabels = orders
+        .map((order) => order.manapoolOrderId || order.id)
+        .filter(Boolean);
+    const labelPreview = orderLabels.slice(0, 3).join(', ');
+    const extraCount = orderLabels.length - Math.min(orderLabels.length, 3);
+    const detail = orderLabels.length
+        ? `${labelPreview}${extraCount > 0 ? `, +${extraCount} more` : ''}`
+        : '';
+    shippingAlertText.textContent = count === 1
+        ? `ManaPool order${detail ? ` ${detail}` : ''} needs to be shipped.`
+        : `${count} ManaPool orders require shipment${detail ? ` (${detail})` : ''}.`;
+    shippingAlert.removeAttribute('hidden');
+};
+
+const refreshShippingAlert = async () => {
+    if (!shippingAlert) return;
+    try {
+        const response = await fetch('/api/transactions/unshipped');
+        if (!response.ok) throw new Error('Failed loading shipment status.');
+        const data = await response.json();
+        if (data.count > 0) {
+            showShippingAlert(data.count, data.orders || []);
+        } else {
+            hideShippingAlert();
+        }
+    } catch (error) {
+        console.error('Failed loading unshipped orders:', error);
+        hideShippingAlert();
+    } finally {
+        if (shippingAlertTimer) clearTimeout(shippingAlertTimer);
+        shippingAlertTimer = setTimeout(refreshShippingAlert, 180000);
+    }
+};
+
+refreshShippingAlertBtn?.addEventListener('click', () => {
+    refreshShippingAlert();
+});
 
 const recentOpenBtn = document.getElementById('recent-lists-btn');
 const recentModal = document.getElementById('recent-modal');
@@ -289,3 +338,5 @@ if (recentModal) {
         }
     });
 }
+
+refreshShippingAlert();

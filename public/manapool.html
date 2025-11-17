@@ -62,22 +62,28 @@
                 </div>
             </article>
 
-            <article class="mp-card">
-                <h2>Bulk Pricing Tools</h2>
-                <form id="bulk-price-form" class="bulk-form">
-                    <label>
-                        Strategy
-                        <select id="bulk-strategy">
-                            <option value="manaPoolLowPercent">5% under ManaPool low</option>
-                            <option value="manaPoolLowCents">25 cents under ManaPool low</option>
-                            <option value="tcgMarketMatch">Match TCG Market</option>
-                        </select>
+            <article class="mp-card automation-card">
+                <div class="automation-card-header">
+                    <div>
+                        <h2>Automatic Price Updates</h2>
+                        <p>Keep every card at the best safe price without constant manual pushes.</p>
+                    </div>
+                    <label class="automation-toggle">
+                        <input type="checkbox" id="automation-toggle">
+                        <span class="automation-toggle-pill">
+                            <span class="automation-toggle-thumb"></span>
+                        </span>
+                        <span class="automation-toggle-label">Auto Pricing</span>
                     </label>
-                    <label id="bulk-adjustment-wrapper">
-                        Adjustment Value
-                        <input type="number" id="bulk-adjustment" step="0.01" placeholder="5">
-                    </label>
-                    <button type="submit" class="primary-btn">Preview Adjustments</button>
+                </div>
+                <form id="automation-form" class="automation-form">
+                    <p class="automation-hint">Enable automatic pricing and fine-tune the schedule inside advanced settings.</p>
+                    <div class="automation-actions">
+                        <button type="submit" class="primary-btn" id="automation-save-btn">Save &amp; Schedule</button>
+                        <button type="button" class="ghost-btn" id="automation-advanced-btn">Advanced Settings</button>
+                        <button type="button" class="ghost-btn" id="automation-debug-btn">Automation Debug</button>
+                    </div>
+                    <p class="automation-status" id="automation-status">Automation is currently off.</p>
                 </form>
             </article>
         </section>
@@ -93,15 +99,16 @@
                     <thead>
                         <tr>
                             <th>Card</th>
-                            <th>Set</th>
+                            <th>Printing</th>
+                            <th>Finish / Condition</th>
                             <th>Local Qty</th>
                             <th>ManaPool Qty</th>
-                            <th>Local Price</th>
-                            <th>ManaPool Price</th>
+                            <th>Local (TCG Market Price)</th>
+                            <th>Remote Price</th>
                         </tr>
                     </thead>
                     <tbody id="discrepancy-table-body">
-                        <tr><td colspan="6" class="empty">No discrepancies to display.</td></tr>
+                        <tr><td colspan="7" class="empty">No discrepancies to display.</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -115,6 +122,93 @@
             <ul id="action-log" class="action-log"></ul>
         </section>
     </main>
+
+    <div id="automation-settings-modal" class="mp-modal" hidden>
+        <div class="mp-modal-dialog automation-settings-dialog">
+            <button type="button" class="mp-modal-close" data-close-automation>&times;</button>
+            <h2>Advanced Auto Pricing Settings</h2>
+            <p class="modal-lede">Define floors, Discord alerts, and card exclusions for the automation rule.</p>
+            <form id="automation-advanced-form" class="automation-advanced-form">
+                <div class="advanced-grid advanced-schedule-grid">
+                    <label>
+                        Strategy
+                        <select id="automation-strategy">
+                            <option value="undercutBest" selected>1c under lowest listing</option>
+                            <option value="manaPoolLowPercent">5% under ManaPool low</option>
+                            <option value="manaPoolLowCents">25 cents under ManaPool low</option>
+                            <option value="tcgMarketMatch">Match TCG Market</option>
+                        </select>
+                    </label>
+                    <label>
+                        Interval (minutes)
+                        <input type="number" id="automation-interval" min="5" step="5" value="30" required>
+                        <span class="hint">Runs no more frequently than every 5 minutes.</span>
+                    </label>
+                </div>
+                <div class="advanced-grid">
+                    <label>
+                        Floor type
+                        <select id="automation-floor-type">
+                            <option value="percent">Percent under starting price</option>
+                            <option value="absolute">Lowest undercut ($)</option>
+                        </select>
+                    </label>
+                    <label>
+                        Undercut value
+                        <input type="number" id="automation-floor-value" min="0" step="0.01" value="5">
+                        <span class="hint">Relative to the price when automation starts.</span>
+                    </label>
+                    <label>
+                        Discord ping channel / webhook
+                        <input type="text" id="automation-discord-webhook" placeholder="https://discord.com/api/webhooks/...">
+                    </label>
+                    <label>
+                        Ping when a card drops by (%)
+                        <input type="number" id="automation-drop-threshold" min="1" max="100" step="1" value="15">
+                    </label>
+                </div>
+                <label>
+                    Per-card floors
+                    <textarea id="automation-floor-overrides" rows="3" placeholder="Card Name|SET|% or $ minimum&#10;Force of Will|EMA|$80&#10;Ragavan|MH2|5%"></textarea>
+                    <span class="hint">One per line. Use dollar amounts (e.g. $10) or percents (e.g. 6%).</span>
+                </label>
+                <label>
+                    Exclude these cards
+                    <textarea id="automation-exclusions" rows="3" placeholder="Card name, set code, or SKU per line"></textarea>
+                    <span class="hint">Excluded cards will keep the price you set manually.</span>
+                </label>
+                <div class="automation-advanced-actions">
+                    <button type="button" class="ghost-btn" data-close-automation>Cancel</button>
+                    <button type="submit" class="primary-btn">Save Advanced Settings</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="automation-debug-modal" class="mp-modal" hidden>
+        <div class="mp-modal-dialog automation-debug-dialog">
+            <button type="button" class="mp-modal-close" data-close-automation-debug>&times;</button>
+            <h2>Automation Debug</h2>
+            <p class="modal-lede">Preview how the auto-pricing job interprets current listings and competitors.</p>
+            <p class="automation-debug-status" id="automation-debug-status"></p>
+            <div class="table-wrapper automation-debug-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Card</th>
+                            <th>Our Price</th>
+                            <th>Competitor</th>
+                            <th>Seller</th>
+                            <th>Decision</th>
+                        </tr>
+                    </thead>
+                    <tbody id="automation-debug-table-body">
+                        <tr><td colspan="5" class="empty">No data loaded.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 
     <div id="unmatched-modal" class="mp-modal" hidden>
         <div class="mp-modal-dialog">
@@ -146,6 +240,7 @@
                     <div class="push-progress-bar-fill" id="push-progress-bar-fill"></div>
                 </div>
                 <p id="push-progress-text">Preparing push...</p>
+                <ul class="push-progress-steps" id="push-progress-steps"></ul>
             </div>
             <div class="table-wrapper push-table">
                 <table>
@@ -154,13 +249,14 @@
                             <th>Card</th>
                             <th>Set</th>
                             <th>Qty</th>
-                            <th>Price Basis</th>
-                            <th>Scryfall ID</th>
+                            <th>Local (TCG Market)</th>
+                            <th>Target Price</th>
+                            <th>Identifiers</th>
                             <th></th>
                         </tr>
                     </thead>
                     <tbody id="push-inventory-table-body">
-                        <tr><td colspan="6" class="empty">Loading inventory...</td></tr>
+                        <tr><td colspan="7" class="empty">Loading inventory...</td></tr>
                     </tbody>
                 </table>
             </div>

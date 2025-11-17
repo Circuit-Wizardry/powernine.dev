@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Finances — powernine.dev</title>
+    <link rel="icon" href="/media/favicon.png" type="image/png">
+    <link rel="stylesheet" href="/theme.css">
+    <link rel="stylesheet" href="/card-search.css">
+    <link rel="stylesheet" href="/finances.css">
+</head>
+<body>
+    <main class="fin-shell">
+        <header class="fin-header">
+            <div>
+                <p class="eyebrow">Operations</p>
+                <h1>Manage Finances</h1>
+                <p class="lede">Track revenue, expenses, and inventory value across powernine.dev and ManaPool.</p>
+            </div>
+            <div class="header-actions">
+                <div class="purchase-button-group" id="card-purchase-trigger">
+                    <button type="button" class="primary-btn" id="card-purchase-btn">Add Cards</button>
+                    <div class="card-purchase-menu" id="card-purchase-menu" hidden>
+                        <button type="button" data-mode="discrete">Discrete pricing</button>
+                        <button type="button" data-mode="split">Split pricing</button>
+                    </div>
+                </div>
+                <button type="button" class="secondary-btn" id="record-expense-btn">Log Expense</button>
+                <button type="button" class="ghost-btn" id="refresh-summary-btn">Refresh</button>
+                <a href="/transactions.html" class="back-button">View Transactions</a>
+                <a href="/" class="back-button">Home</a>
+            </div>
+        </header>
+
+        <section class="fin-kpis" id="kpi-grid">
+            <article class="fin-card kpi-card">
+                <p class="label">Revenue</p>
+                <h2 id="kpi-revenue-value">—</h2>
+                <p class="muted" id="kpi-revenue-meta">-- sales recorded</p>
+            </article>
+            <article class="fin-card kpi-card">
+                <p class="label">Estimated Fees</p>
+                <h2 id="kpi-fees-value">—</h2>
+                <p class="muted" id="kpi-fees-meta">Platform deductions</p>
+            </article>
+            <article class="fin-card kpi-card">
+                <p class="label">Cost of Goods</p>
+                <h2 id="kpi-cogs-value">—</h2>
+                <p class="muted" id="kpi-cogs-meta">Cost basis for sold cards</p>
+            </article>
+            <article class="fin-card kpi-card">
+                <p class="label">Manual Expenses</p>
+                <h2 id="kpi-expense-value">—</h2>
+                <p class="muted" id="kpi-expense-meta">-- entries logged</p>
+            </article>
+            <article class="fin-card kpi-card">
+                <p class="label">Net Profit <span class="info-dot" id="net-info-dot" title="">?</span></p>
+                <h2 id="kpi-net-value">—</h2>
+                <p class="muted" id="kpi-net-meta">After fees &amp; expenses</p>
+            </article>
+            <article class="fin-card kpi-card">
+                <p class="label">Inventory Value</p>
+                <h2 id="kpi-inventory-value">—</h2>
+                <p class="muted" id="kpi-inventory-meta">— cards tracked</p>
+            </article>
+        </section>
+
+        <section class="fin-card snapshot-card">
+            <div class="section-header">
+                <h2>Inventory Value Trend</h2>
+                <div class="section-actions">
+                    <button type="button" class="ghost-btn" id="capture-snapshot-btn">Capture Snapshot</button>
+                    <button type="button" class="ghost-btn" id="refresh-snapshots-btn">Refresh</button>
+                </div>
+            </div>
+            <div class="snapshot-list" id="snapshot-list">
+                <p class="empty">No inventory snapshots yet.</p>
+            </div>
+        </section>
+
+        <section class="fin-grid">
+            <article class="fin-card">
+                <div class="section-header">
+                    <h2>Expense Breakdown</h2>
+                </div>
+                <ul class="category-list" id="category-list">
+                    <li class="empty">No expenses logged.</li>
+                </ul>
+            </article>
+
+            <article class="fin-card">
+                <div class="section-header">
+                    <h2>Recent Expenses</h2>
+                </div>
+                <ul class="recent-expense-list" id="recent-expense-list">
+                    <li class="empty">No recent expenses.</li>
+                </ul>
+            </article>
+        </section>
+
+        <section class="fin-card">
+            <div class="section-header">
+                <h2>Card Purchase Ledger</h2>
+                <div class="section-actions">
+                    <button type="button" class="ghost-btn" id="refresh-card-ledger-btn">Refresh</button>
+                </div>
+            </div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Incurred</th>
+                            <th>Description</th>
+                            <th>Payment Method</th>
+                            <th>Amount</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="card-ledger-body">
+                        <tr><td colspan="5" class="empty">Loading card purchases...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="fin-card">
+            <div class="section-header">
+                <h2>Shipping Ledger</h2>
+                <div class="section-actions">
+                    <button type="button" class="ghost-btn" id="refresh-shipping-ledger-btn">Refresh</button>
+                </div>
+            </div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Description</th>
+                            <th>Category</th>
+                            <th>Amount</th>
+                            <th>Incurred</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="shipping-ledger-body">
+                        <tr><td colspan="5" class="empty">Loading shipping expenses...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="fin-card">
+            <div class="section-header">
+                <h2>Expenses Ledger</h2>
+                <div class="section-actions">
+                    <input type="search" id="expense-filter" placeholder="Search description or category">
+                    <button type="button" class="ghost-btn" id="refresh-expenses-btn">Refresh</button>
+                </div>
+            </div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Description</th>
+                            <th>Category</th>
+                            <th>Amount</th>
+                            <th>Incurred</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="expense-table-body">
+                        <tr><td colspan="5" class="empty">Loading expenses...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <div id="expense-modal" class="fin-modal" hidden>
+        <div class="fin-modal-dialog">
+            <button type="button" class="fin-modal-close" data-close-expense>&times;</button>
+            <h2 id="expense-modal-title">Log Expense</h2>
+            <form id="expense-form">
+                <input type="hidden" id="expense-id">
+                <label>
+                    Description
+                    <input type="text" id="expense-description" required maxlength="160" placeholder="Card purchase, shipping label, etc.">
+                </label>
+                <div class="form-grid">
+                    <label>
+                        Amount (USD)
+                        <input type="number" id="expense-amount" min="0.01" step="0.01" required>
+                    </label>
+                    <label>
+                        Category
+                        <input type="text" id="expense-category" placeholder="Purchases, Supplies, Fees">
+                    </label>
+                    <label>
+                        Payment Method
+                        <input type="text" id="expense-method" placeholder="Cash, Credit, PayPal">
+                    </label>
+                    <label>
+                        Incurred On
+                        <input type="date" id="expense-date" required>
+                    </label>
+                </div>
+                <label>
+                    Notes
+                    <textarea id="expense-notes" rows="3" placeholder="Optional details or references."></textarea>
+                </label>
+                <div class="modal-actions">
+                    <button type="submit" class="primary-btn" id="save-expense-btn">Save Expense</button>
+                    <button type="button" class="ghost-btn" data-close-expense>Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="discrete-purchase-modal" class="fin-modal" hidden>
+        <div class="fin-modal-dialog card-purchase-dialog">
+            <button type="button" class="fin-modal-close" data-close-discrete>&times;</button>
+            <h2>Card Purchases — Discrete Pricing</h2>
+            <p class="modal-lede">Queue each card and enter the exact amount you paid for it. Perfect when you already know individual costs.</p>
+            <div class="card-purchase-search">
+                <label>
+                    Search card
+                    <div class="search-input-wrapper" data-search-wrapper="discrete">
+                        <input type="text" id="discrete-purchase-search" placeholder="Search by card name..." autocomplete="off">
+                        <div id="discrete-printing-dropdown" class="printing-dropdown" hidden></div>
+                    </div>
+                </label>
+                <small>Use the dropdown to pick the exact printing you want to queue.</small>
+            </div>
+            <div class="card-purchase-queue-header">
+                <h3>Queued Cards</h3>
+                <span id="discrete-queue-count" class="queue-count">0 cards</span>
+            </div>
+            <div class="table-wrapper card-purchase-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Card</th>
+                            <th>Finish</th>
+                            <th>Condition</th>
+                            <th>Qty</th>
+                            <th>Purchase Price</th>
+                            <th>Total</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="discrete-queue-body">
+                        <tr><td colspan="7" class="empty">No cards queued yet.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="card-purchase-summary">
+                <label>
+                    Payment Method
+                    <input type="text" id="discrete-payment-method" placeholder="Cash, PayPal, etc.">
+                </label>
+                <label>
+                    Purchase Date
+                    <input type="date" id="discrete-purchase-date">
+                </label>
+                <div class="card-purchase-actions">
+                    <button type="button" class="primary-btn" id="discrete-save-btn">Log Card Purchases</button>
+                    <button type="button" class="ghost-btn" data-close-discrete>Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="split-purchase-modal" class="fin-modal" hidden>
+        <div class="fin-modal-dialog card-purchase-dialog">
+            <button type="button" class="fin-modal-close" data-close-split>&times;</button>
+            <h2>Card Purchases — Split Pricing</h2>
+            <p class="modal-lede">Enter a combined purchase total, then split it across all queued cards using TCG low as the weighting.</p>
+            <div class="card-purchase-search">
+                <label>
+                    Search card
+                    <div class="search-input-wrapper" data-search-wrapper="split">
+                        <input type="text" id="split-purchase-search" placeholder="Search by card name..." autocomplete="off">
+                        <div id="split-printing-dropdown" class="printing-dropdown" hidden></div>
+                    </div>
+                </label>
+                <small>Choose a card, then pick a printing from the dropdown before allocating.</small>
+            </div>
+            <div class="card-purchase-queue-header">
+                <h3>Queued Cards</h3>
+                <span id="split-queue-count" class="queue-count">0 cards</span>
+            </div>
+            <div class="table-wrapper card-purchase-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Card</th>
+                            <th>Finish</th>
+                            <th>Condition</th>
+                            <th>Qty</th>
+                            <th>TCG Low</th>
+                            <th>Allocated Price</th>
+                            <th>Total</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="split-queue-body">
+                        <tr><td colspan="8" class="empty">No cards queued yet.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="card-purchase-summary">
+                <label>
+                    Total Purchase Amount
+                    <input type="number" id="split-total-input" step="0.01" min="0" placeholder="0.00">
+                </label>
+                <label>
+                    Payment Method
+                    <input type="text" id="split-payment-method" placeholder="Cash, PayPal, etc.">
+                </label>
+                <div class="card-purchase-actions">
+                    <button type="button" class="secondary-btn" id="split-allocate-btn">Allocate by TCG Low</button>
+                    <button type="button" class="primary-btn" id="split-save-btn">Log Card Purchases</button>
+                    <button type="button" class="ghost-btn" data-close-split>Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <script src="/js/client-utils.js"></script>
+    <script src="/finances.js"></script>
+</body>
+</html>

@@ -96,28 +96,90 @@
     gap: 12px;
 }
 
-.bulk-form {
+.automation-card {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 16px;
 }
 
-.bulk-form label {
+.automation-card-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.automation-toggle {
     display: flex;
     flex-direction: column;
-    font-size: 0.9rem;
-    gap: 6px;
+    align-items: flex-end;
+    gap: 4px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.automation-toggle input {
+    display: none;
+}
+
+.automation-toggle-pill {
+    width: 42px;
+    height: 22px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.35);
+    position: relative;
+    transition: background 0.2s ease;
+}
+
+.automation-toggle-thumb {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.2s ease;
+}
+
+.automation-toggle input:checked + .automation-toggle-pill {
+    background: linear-gradient(90deg, #38bdf8, #4ade80);
+}
+
+.automation-toggle input:checked + .automation-toggle-pill .automation-toggle-thumb {
+    transform: translateX(18px);
+}
+
+.automation-toggle-label {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted-color);
+}
+
+.automation-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.automation-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.automation-status {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--muted-color);
+}
+
+.automation-hint {
+    margin: 0;
+    font-size: 0.85rem;
     color: var(--muted-strong);
-}
-
-.bulk-form select,
-.bulk-form input {
-    background: rgba(14, 16, 26, 0.92);
-    color: var(--text-color);
-    border: 1px solid rgba(148, 163, 184, 0.25);
-    border-radius: 10px;
-    padding: 10px 12px;
-    font-size: 0.95rem;
 }
 
 .section-header {
@@ -162,6 +224,68 @@
 
 .discrepancy-new {
     background: rgba(234, 179, 8, 0.15);
+}
+
+.table-wrapper tbody tr.remote-only {
+    background: rgba(251, 191, 36, 0.12);
+}
+
+.printing-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.printing-meta small {
+    font-size: 0.75rem;
+    color: var(--warning-color);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.finish-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(99, 110, 155, 0.2);
+    font-size: 0.78rem;
+    color: var(--muted-strong);
+}
+
+.price-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.price-meta small {
+    font-size: 0.75rem;
+    color: var(--muted-color);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.id-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.id-row:last-child {
+    margin-bottom: 0;
+}
+
+.id-row code {
+    background: rgba(148, 163, 184, 0.12);
+    padding: 2px 6px;
+    border-radius: 6px;
+}
+
+.scryfall-id-cell .muted {
+    color: var(--muted-color);
+    font-size: 0.85rem;
 }
 
 .action-log {
@@ -292,6 +416,89 @@
     margin-bottom: 8px;
 }
 
+.automation-settings-dialog {
+    max-width: min(760px, 95vw);
+}
+
+.automation-advanced-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.automation-advanced-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.9rem;
+    color: var(--muted-strong);
+}
+
+.automation-advanced-form input,
+.automation-advanced-form select,
+.automation-advanced-form textarea {
+    background: rgba(14, 16, 26, 0.92);
+    color: var(--text-color);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 0.95rem;
+}
+
+.automation-advanced-form textarea {
+    min-height: 120px;
+    resize: vertical;
+}
+
+.advanced-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.advanced-schedule-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.automation-advanced-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+.automation-advanced-form .hint {
+    font-size: 0.8rem;
+    color: var(--muted-color);
+}
+
+.automation-debug-dialog {
+    max-width: min(1000px, 95vw);
+}
+
+.automation-debug-status {
+    margin: 8px 0 12px;
+    font-size: 0.85rem;
+    color: var(--muted-strong);
+}
+
+.automation-debug-table table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.automation-debug-table th,
+.automation-debug-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+    text-align: left;
+}
+
+.automation-debug-table tr:last-child th,
+.automation-debug-table tr:last-child td {
+    border-bottom: none;
+}
+
 .modal-lede {
     margin-top: 0;
     color: var(--muted-strong);
@@ -357,6 +564,55 @@
     margin: 8px 0 0;
     font-size: 0.9rem;
     color: var(--muted-strong);
+}
+
+.push-progress-steps {
+    list-style: none;
+    margin: 12px 0 0;
+    padding: 0;
+    max-height: 180px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.push-progress-steps li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border-left: 3px solid rgba(148, 163, 184, 0.2);
+    background: rgba(15, 23, 42, 0.4);
+}
+
+.push-progress-steps .step-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.push-progress-steps .step-detail {
+    font-size: 0.8rem;
+    color: var(--muted-strong);
+    margin-top: 2px;
+}
+
+.push-progress-steps li[data-status="running"] {
+    border-left-color: #38bdf8;
+}
+
+.push-progress-steps li[data-status="success"] {
+    border-left-color: #4ade80;
+}
+
+.push-progress-steps li[data-status="skipped"] {
+    border-left-color: #fbbf24;
+}
+
+.push-progress-steps li[data-status="error"] {
+    border-left-color: #f87171;
 }
 
 .push-table table {

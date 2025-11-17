@@ -23,8 +23,20 @@ import {
     getInventoryDiscrepancies,
     importOrdersToTransactions,
     forceImportOrder,
-    cleanupRemoteInventory
+    cleanupRemoteInventory,
+    getAutomationSettings,
+    saveAutomationSettings,
+    snapshotAutomationBaselines,
+    getLocalInventoryRows,
+    simulateAutomationForItems
 } from './manapool-service.js';
+import { updateAutomationScheduler, buildAutomationPayload } from './automation-runner.js';
+import {
+    recordShippingExpense,
+    SHIPPING_EXPENSE_CATEGORIES,
+    MANAPOOL_AUTO_SHIPPING_AMOUNT,
+    MANAPOOL_AUTO_SHIPPING_THRESHOLD,
+} from './expense-helpers.js';
 
 const FIXED_SHIPPING_EXPENSE = 0; // Default packaging cost when none supplied
 
@@ -146,6 +158,274 @@ export default function(db, options = {}) {
     const uploadRoot = options.uploadRoot ? path.resolve(options.uploadRoot) : path.resolve('./private/uploads');
 
     const csvUpload = multer({ storage: multer.memoryStorage() });
+
+    const dbGet = (sql, params = []) => new Promise((resolve, reject) => {
+        db.get(sql, params, (err, row) => {
+            if (err) return reject(err);
+            resolve(row || null);
+        });
+    });
+
+    const dbAllAsync = (sql, params = []) => new Promise((resolve, reject) => {
+        db.all(sql, params, (err, rows) => {
+            if (err) return reject(err);
+            resolve(rows || []);
+        });
+    });
+
+    const normalizeIsoDate = (value) => {
+        if (!value) return new Date().toISOString();
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+            return new Date().toISOString();
+        }
+        return parsed.toISOString();
+    };
+
+    const getInventoryValuation = async () => {
+        const sql = `
+            SELECT 
+                IFNULL(SUM(
+                    COALESCE(
+                        NULLIF(tcgMarketPrice, 0),
+                        NULLIF(pricePaid, 0),
+                        0
+                    ) * quantity
+                ), 0) AS totalValue,
+                IFNULL(SUM(pricePaid * quantity), 0) AS costBasis,
+                IFNULL(SUM(quantity), 0) AS totalQuantity
+            FROM inventory
+            WHERE quantity IS NOT NULL AND quantity > 0
+        `;
+        const row = await dbGet(sql);
+        return {
+            totalValue: Number(row?.totalValue || 0),
+            costBasis: Number(row?.costBasis || 0),
+            totalQuantity: Number(row?.totalQuantity || 0)
+        };
+    };
+
+    const captureInventorySnapshot = async (notes = null) => {
+        const valuation = await getInventoryValuation();
+        const snapshotId = randomUUID();
+        const capturedAt = new Date().toISOString();
+        const sql = `
+            INSERT INTO inventory_snapshots (id, capturedAt, totalValue, inventoryCount, costBasis, notes)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `;
+        await new Promise((resolve, reject) => {
+            db.run(sql, [
+                snapshotId,
+                capturedAt,
+                valuation.totalValue,
+                valuation.totalQuantity,
+                valuation.costBasis,
+                notes || null
+            ], (err) => {
+                if (err) return reject(err);
+                resolve();
+            });
+        });
+        return {
+            id: snapshotId,
+            capturedAt,
+            totalValue: valuation.totalValue,
+            inventoryCount: valuation.totalQuantity,
+            costBasis: valuation.costBasis,
+            notes: notes || null
+        };
+    };
+
+    const getSoldCostBasis = () => new Promise((resolve, reject) => {
+        const sql = `
+            SELECT IFNULL(SUM(i.pricePaid * ti.quantity), 0) AS totalCost
+            FROM transaction_items ti
+            JOIN transactions t ON t.id = ti.transactionId
+            JOIN inventory i ON ti.inventoryId = i.id
+            WHERE COALESCE(t.entryType, 'sale') = 'sale'
+        `;
+        db.get(sql, [], (err, row) => {
+            if (err) return reject(err);
+            resolve(Number(row?.totalCost || 0));
+        });
+    });
+
+    const fetchInventoryLowByScryfall = (scryfallId) => new Promise((resolve) => {
+        if (!scryfallId) return resolve(null);
+        const sql = `
+            SELECT tcgLow, tcgLowPlusShipping
+            FROM inventory
+            WHERE scryfallId = ?
+            ORDER BY datetime(createdAt) DESC
+            LIMIT 1
+        `;
+        db.get(sql, [scryfallId], (err, row) => {
+            if (err || !row) return resolve(null);
+            const value = Number(row.tcgLow ?? row.tcgLowPlusShipping);
+            resolve(Number.isFinite(value) && value > 0 ? value : null);
+        });
+    });
+
+    const fetchPriceHistoryByUuid = (uuid) => new Promise((resolve) => {
+        if (!uuid) return resolve(null);
+        db.get('SELECT price_json FROM price_history WHERE uuid = ? LIMIT 1', [uuid], (err, row) => {
+            if (err || !row) return resolve(null);
+            try {
+                resolve(JSON.parse(row.price_json));
+            } catch (error) {
+                console.error('[finances] price JSON parse error:', error.message);
+                resolve(null);
+            }
+        });
+    });
+
+const normalizeFinish = (value = 'normal') => {
+    const normalized = String(value || 'normal').toLowerCase();
+    if (normalized === 'nonfoil' || normalized === 'normal') return 'normal';
+    if (normalized === 'etched') return 'etched';
+    if (normalized === 'foil') return 'foil';
+    return normalized;
+};
+
+const extractRetailPrice = (priceJson, finish = 'normal') => {
+        if (!priceJson?.paper?.tcgplayer?.retail) return null;
+    const retailBlock = priceJson.paper.tcgplayer.retail;
+    const finishKey = retailBlock[finish] ? finish : Object.keys(retailBlock)[0];
+    if (!finishKey) return null;
+    const history = retailBlock[finishKey];
+    return getLatestFromPriceHistory(history);
+};
+
+const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
+    if (!scryfallId) return resolve(null);
+    db.get('SELECT uuid FROM cards WHERE scryfallId = ? LIMIT 1', [scryfallId], (err, row) => {
+        if (err || !row) return resolve(null);
+        resolve(row.uuid);
+    });
+});
+
+    const buildFinanceSummary = async () => {
+        const [
+            salesRows,
+            expenseRow,
+            unshippedRow,
+            valuation,
+            categoryRows,
+            snapshotRows,
+            recentExpenses,
+            costOfGoodsSold
+        ] = await Promise.all([
+            dbAllAsync(`
+                SELECT totalSalePrice, netProfit, packagingCost, platform
+                FROM transactions
+                WHERE COALESCE(entryType, 'sale') = 'sale'
+            `),
+            dbGet(`
+                SELECT 
+                    IFNULL(SUM(amount), 0) AS expenses,
+                    COUNT(*) AS expenseCount
+                FROM expense_entries
+            `),
+            dbGet(`
+                SELECT COUNT(*) AS pending
+                FROM transactions
+                WHERE platform = 'ManaPool' AND COALESCE(isShipped, 1) = 0
+            `),
+            getInventoryValuation(),
+            dbAllAsync(`
+                SELECT 
+                    COALESCE(NULLIF(category, ''), 'Uncategorized') AS category,
+                    COUNT(*) AS count,
+                    SUM(amount) AS total
+                FROM expense_entries
+                GROUP BY category
+                ORDER BY total DESC
+            `),
+            dbAllAsync(`
+                SELECT id, capturedAt, totalValue, inventoryCount, costBasis, notes
+                FROM inventory_snapshots
+                ORDER BY datetime(capturedAt) DESC
+                LIMIT 20
+            `),
+            dbAllAsync(`
+                SELECT id, description, amount, category, paymentMethod, incurredOn, notes
+                FROM expense_entries
+                ORDER BY datetime(incurredOn) DESC
+                LIMIT 5
+            `),
+            getSoldCostBasis()
+        ]);
+
+        const revenue = salesRows.reduce((sum, row) => sum + Number(row.totalSalePrice || 0), 0);
+        const estimatedFees = salesRows.reduce((sum, row) => {
+            return sum + Number(calculateFees(Number(row.totalSalePrice || 0), row.platform || ''));
+        }, 0);
+        const shippingEstimate = salesRows.reduce((sum, row) => sum + Number(row.packagingCost || 0), 0);
+        const salesCount = salesRows.length;
+        const expenses = Number(expenseRow?.expenses || 0);
+        const expenseCount = Number(expenseRow?.expenseCount || 0);
+        const salesNetBeforeExpenses = revenue - estimatedFees - costOfGoodsSold;
+        const netProfit = salesNetBeforeExpenses - expenses;
+        const pendingOrders = Number(unshippedRow?.pending || 0);
+
+        return {
+            revenue,
+            salesCount,
+            expenses,
+            expenseCount,
+            netProfit,
+            pendingOrders,
+            inventoryValue: valuation.totalValue,
+            inventoryUnits: valuation.totalQuantity,
+            inventoryCostBasis: valuation.costBasis,
+            estimatedFees,
+            shippingEstimate,
+            salesNetProfit: salesNetBeforeExpenses,
+            costOfGoodsSold,
+            expenseCategories: categoryRows.map(row => ({
+                category: row.category,
+                total: Number(row.total || 0),
+                count: Number(row.count || 0)
+            })),
+            snapshots: snapshotRows,
+            recentExpenses: recentExpenses.map(row => ({
+                ...row,
+                amount: Number(row.amount || 0)
+            }))
+        };
+    };
+
+    const normalizeExpensePayload = (payload = {}) => {
+        const description = (payload.description || '').trim();
+        if (!description) {
+            throw new Error('Description is required.');
+        }
+        const amount = Number(payload.amount);
+        if (!Number.isFinite(amount) || amount <= 0) {
+            throw new Error('Amount must be greater than zero.');
+        }
+        const normalized = {
+            description,
+            amount: Number(amount.toFixed(2)),
+            category: payload.category ? String(payload.category).trim() : null,
+            paymentMethod: payload.paymentMethod ? String(payload.paymentMethod).trim() : null,
+            incurredOn: normalizeIsoDate(payload.incurredOn),
+            linkedInventoryId: payload.linkedInventoryId ? String(payload.linkedInventoryId).trim() : null,
+            notes: payload.notes ? String(payload.notes).trim() : null
+        };
+        if (normalized.linkedInventoryId === '') {
+            normalized.linkedInventoryId = null;
+        }
+        return normalized;
+    };
+
+    const mapExpenseRow = (row) => {
+        if (!row) return null;
+        return {
+            ...row,
+            amount: Number(row.amount || 0)
+        };
+    };
 
 
     router.post('/scrape-buylists', express.json(), async (req, res) => {
@@ -351,6 +631,7 @@ export default function(db, options = {}) {
                 skipped: importResult.skipped,
                 errors: importResult.errors,
                 unmatchedOrders: importResult.unmatchedOrders,
+                shipmentUpdates: importResult.shipmentUpdates || 0,
                 totalFetched: (payload.orders || []).length
             });
         } catch (error) {
@@ -380,6 +661,60 @@ export default function(db, options = {}) {
         } catch (error) {
             console.error('[manapool] bulk pricing error:', error);
             res.status(500).json({ error: error.message || 'Failed to generate bulk pricing preview.' });
+        }
+    });
+
+    router.get('/manapool/prices/automation', async (_req, res) => {
+        try {
+            const settings = await getAutomationSettings(db);
+            res.json({ settings });
+        } catch (error) {
+            console.error('[manapool] automation fetch error:', error);
+            res.status(500).json({ error: error.message || 'Failed to load automation settings.' });
+        }
+    });
+
+    router.post('/manapool/prices/automation', express.json(), async (req, res) => {
+        try {
+            const previous = await getAutomationSettings(db);
+            const settings = await saveAutomationSettings(req.body || {}, db);
+            if (!previous?.enabled && settings.enabled) {
+                await snapshotAutomationBaselines(db);
+            }
+            updateAutomationScheduler(settings);
+            res.json({ settings });
+        } catch (error) {
+            console.error('[manapool] automation save error:', error);
+            res.status(500).json({ error: error.message || 'Failed to save automation settings.' });
+        }
+    });
+
+    router.get('/manapool/prices/automation/debug', async (req, res) => {
+        try {
+            const limit = Math.min(Math.max(parseInt(req.query?.limit, 10) || 100, 1), 500);
+            const settings = await getAutomationSettings(db);
+            const automationContext = await buildAutomationPayload(settings);
+            if (!automationContext) {
+                return res.status(400).json({ error: 'Automation context not ready yet.' });
+            }
+            const rows = await getLocalInventoryRows(db);
+            const activeRows = rows.filter(row => Number(row.quantity) > 0).slice(0, limit);
+            const entries = [];
+            await simulateAutomationForItems(activeRows, automationContext, { debugCollector: entries });
+            const formatted = entries.map((entry) => ({
+                ...entry,
+                ourPrice: entry.ourPriceCents != null ? entry.ourPriceCents / 100 : null,
+                targetPrice: entry.targetPriceCents != null ? entry.targetPriceCents / 100 : null,
+                baselinePrice: entry.baselinePriceCents != null ? entry.baselinePriceCents / 100 : null,
+                competitorPrice: entry.competitorPriceCents != null ? entry.competitorPriceCents / 100 : null
+            }));
+            res.json({
+                inspected: activeRows.length,
+                entries: formatted
+            });
+        } catch (error) {
+            console.error('[manapool] automation debug error:', error);
+            res.status(500).json({ error: error.message || 'Failed to generate automation debug data.' });
         }
     });
 
@@ -449,7 +784,7 @@ export default function(db, options = {}) {
     router.get('/transactions', (req, res) => {
         const sql = `
             SELECT 
-                t.id, t.soldAt, t.platform, t.shippingCost, t.packagingCost, t.totalSalePrice, t.netProfit, t.packingSlipPath, t.manapoolOrderId,
+                t.id, t.soldAt, t.platform, t.shippingCost, t.packagingCost, t.totalSalePrice, t.netProfit, t.packingSlipPath, t.manapoolOrderId, t.isShipped, t.entryType,
                 COALESCE((
                     SELECT json_group_array(
                         json_object(
@@ -478,9 +813,201 @@ export default function(db, options = {}) {
                     console.error('Failed to parse items JSON for transaction ID:', row.id);
                     row.items = []; // Default to an empty array on failure
                 }
+                row.isShipped = row.isShipped === null ? 1 : row.isShipped;
+                row.isShipped = Boolean(row.isShipped);
             });
             res.json(rows);
         });
+    });
+
+    router.get('/transactions/unshipped', (req, res) => {
+        const sql = `
+            SELECT id, soldAt, manapoolOrderId
+            FROM transactions
+            WHERE platform = 'ManaPool' AND COALESCE(isShipped, 1) = 0
+            ORDER BY soldAt DESC
+        `;
+        db.all(sql, [], (err, rows) => {
+            if (err) {
+                console.error('Error fetching unshipped transactions:', err);
+                return res.status(500).json({ error: err.message });
+            }
+            res.json({ count: rows.length, orders: rows });
+        });
+    });
+
+    router.get('/finances/summary', async (_req, res) => {
+        try {
+            const summary = await buildFinanceSummary();
+            res.json(summary);
+        } catch (error) {
+            console.error('[finances] summary error:', error);
+            res.status(500).json({ error: error.message || 'Failed to load finance summary.' });
+        }
+    });
+
+    router.get('/finances/expenses', async (req, res) => {
+        try {
+            const limit = Math.min(Math.max(parseInt(req.query?.limit, 10) || 200, 1), 500);
+            const rows = await dbAllAsync(`
+                SELECT id, description, amount, category, paymentMethod, incurredOn, createdAt, linkedInventoryId, notes
+                FROM expense_entries
+                ORDER BY datetime(incurredOn) DESC, datetime(createdAt) DESC
+                LIMIT ?
+            `, [limit]);
+            res.json({ expenses: rows.map(mapExpenseRow) });
+        } catch (error) {
+            console.error('[finances] fetch expenses error:', error);
+            res.status(500).json({ error: error.message || 'Failed to load expenses.' });
+        }
+    });
+
+    router.post('/finances/expenses', express.json(), (req, res) => {
+        let payload;
+        try {
+            payload = normalizeExpensePayload(req.body || {});
+        } catch (error) {
+            return res.status(400).json({ error: error.message });
+        }
+        const expenseId = randomUUID();
+        const sql = `
+            INSERT INTO expense_entries (id, incurredOn, amount, category, description, paymentMethod, linkedInventoryId, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+        db.run(sql, [
+            expenseId,
+            payload.incurredOn,
+            payload.amount,
+            payload.category,
+            payload.description,
+            payload.paymentMethod,
+            payload.linkedInventoryId,
+            payload.notes
+        ], function(err) {
+            if (err) {
+                console.error('[finances] create expense error:', err);
+                return res.status(500).json({ error: err.message || 'Failed to save expense.' });
+            }
+            res.status(201).json({
+                id: expenseId,
+                createdAt: new Date().toISOString(),
+                ...payload
+            });
+        });
+    });
+
+    router.put('/finances/expenses/:id', express.json(), async (req, res) => {
+        const { id } = req.params;
+        let payload;
+        try {
+            payload = normalizeExpensePayload(req.body || {});
+        } catch (error) {
+            return res.status(400).json({ error: error.message });
+        }
+        const sql = `
+            UPDATE expense_entries
+            SET incurredOn = ?, amount = ?, category = ?, description = ?, paymentMethod = ?, linkedInventoryId = ?, notes = ?
+            WHERE id = ?
+        `;
+        db.run(sql, [
+            payload.incurredOn,
+            payload.amount,
+            payload.category,
+            payload.description,
+            payload.paymentMethod,
+            payload.linkedInventoryId,
+            payload.notes,
+            id
+        ], function(err) {
+            if (err) {
+                console.error('[finances] update expense error:', err);
+                return res.status(500).json({ error: err.message || 'Failed to update expense.' });
+            }
+            if (this.changes === 0) {
+                return res.status(404).json({ error: 'Expense entry not found.' });
+            }
+            res.json({ id, ...payload });
+        });
+    });
+
+    router.delete('/finances/expenses/:id', (req, res) => {
+        const { id } = req.params;
+        db.get('SELECT linkedInventoryId FROM expense_entries WHERE id = ?', [id], (fetchErr, expense) => {
+            if (fetchErr) {
+                console.error('[finances] delete expense fetch error:', fetchErr);
+                return res.status(500).json({ error: fetchErr.message || 'Failed to load expense.' });
+            }
+            if (!expense) {
+                return res.status(404).json({ error: 'Expense entry not found.' });
+            }
+
+            const finalize = (inventoryDeleted = false, inventoryReason = null) => {
+                db.run('DELETE FROM expense_entries WHERE id = ?', [id], function(err) {
+                    if (err) {
+                        console.error('[finances] delete expense error:', err);
+                        return res.status(500).json({ error: err.message || 'Failed to delete expense.' });
+                    }
+                    if (this.changes === 0) {
+                        return res.status(404).json({ error: 'Expense entry not found.' });
+                    }
+                    res.json({
+                        message: 'Expense deleted.',
+                        inventoryDeleted,
+                        inventoryReason,
+                    });
+                });
+            };
+
+            const linkedInventoryId = expense.linkedInventoryId;
+            if (!linkedInventoryId) {
+                return finalize(false, 'no_inventory_linked');
+            }
+
+            db.get('SELECT COUNT(*) AS usageCount FROM transaction_items WHERE inventoryId = ?', [linkedInventoryId], (usageErr, usageRow) => {
+                if (usageErr) {
+                    console.error('[finances] inventory usage check error:', usageErr);
+                    return res.status(500).json({ error: usageErr.message || 'Failed to check inventory usage.' });
+                }
+                if ((usageRow?.usageCount || 0) > 0) {
+                    return finalize(false, 'inventory_in_use');
+                }
+                db.run('DELETE FROM inventory WHERE id = ?', [linkedInventoryId], function(invErr) {
+                    if (invErr) {
+                        console.error('[finances] delete linked inventory error:', invErr);
+                        return res.status(500).json({ error: invErr.message || 'Failed to delete linked inventory.' });
+                    }
+                    const inventoryDeleted = this.changes > 0;
+                    const inventoryReason = inventoryDeleted ? null : 'inventory_not_found';
+                    finalize(inventoryDeleted, inventoryReason);
+                });
+            });
+        });
+    });
+
+    router.get('/finances/snapshots', async (req, res) => {
+        try {
+            const limit = Math.min(Math.max(parseInt(req.query?.limit, 10) || 30, 1), 180);
+            const rows = await dbAllAsync(`
+                SELECT id, capturedAt, totalValue, inventoryCount, costBasis, notes
+                FROM inventory_snapshots
+                ORDER BY datetime(capturedAt) DESC
+                LIMIT ?
+            `, [limit]);
+            res.json({ snapshots: rows });
+        } catch (error) {
+            console.error('[finances] snapshots error:', error);
+            res.status(500).json({ error: error.message || 'Failed to load snapshots.' });
+        }
+    });
+
+    router.post('/finances/snapshots', express.json(), async (req, res) => {
+        try {
+            const snapshot = await captureInventorySnapshot(req.body?.notes || null);
+            res.status(201).json(snapshot);
+        } catch (error) {
+            console.error('[finances] snapshot capture error:', error);
+            res.status(500).json({ error: error.message || 'Failed to capture snapshot.' });
+        }
     });
 
 
@@ -488,11 +1015,16 @@ export default function(db, options = {}) {
      * UPDATED: POST a new transaction with quantities and new profit logic.
      */
     router.post('/transactions', express.json(), (req, res) => {
-        const { items, platform, shippingCost: customerPaidShipping, packagingCost } = req.body;
+        const { items, platform, shippingMaterialsCost } = req.body;
 
         if (!items || !Array.isArray(items) || items.length === 0) {
             return res.status(400).json({ error: 'Transaction must include at least one item.' });
         }
+
+        const shippingMaterialsValue = Number(shippingMaterialsCost);
+        const normalizedShippingMaterialsCost = Number.isFinite(shippingMaterialsValue) && shippingMaterialsValue > 0
+            ? Number(shippingMaterialsValue.toFixed(2))
+            : 0;
 
         // We begin the transaction here, and every subsequent step is nested
         // in a callback to guarantee sequential execution.
@@ -522,34 +1054,78 @@ export default function(db, options = {}) {
                     totalPurchasePrice += dbItem.pricePaid * item.quantity;
                 }
 
-                const shippingPaid = Number.isFinite(Number(customerPaidShipping)) ? Number(customerPaidShipping) : 0;
+                const shippingPaid = 0; // shipping is no longer recorded as customer-paid revenue
                 const fees = calculateFees(totalSalePrice, platform);
                 const grossRevenue = totalSalePrice + shippingPaid;
-                const parsedPackaging = Number.isFinite(Number(packagingCost)) && Number(packagingCost) >= 0
-                    ? Number(packagingCost)
-                    : FIXED_SHIPPING_EXPENSE;
-                const totalCost = totalPurchasePrice + fees + parsedPackaging;
+                const parsedPackaging = 0;
+                const totalCost = totalPurchasePrice + fees;
                 const netProfit = grossRevenue - totalCost;
                 const transactionId = randomUUID();
+                const shippingExpenseEntries = [];
+                const incurredOn = new Date().toISOString();
+                if (platform === 'ManaPool' && totalSalePrice > MANAPOOL_AUTO_SHIPPING_THRESHOLD) {
+                    shippingExpenseEntries.push({
+                        amount: MANAPOOL_AUTO_SHIPPING_AMOUNT,
+                        category: SHIPPING_EXPENSE_CATEGORIES.POSTAGE,
+                        description: `ManaPool shipping for transaction ${transactionId}`,
+                        paymentMethod: 'Auto',
+                        notes: `Auto-added because sale exceeded $${MANAPOOL_AUTO_SHIPPING_THRESHOLD}.`,
+                        incurredOn,
+                    });
+                }
+                if (normalizedShippingMaterialsCost > 0) {
+                    shippingExpenseEntries.push({
+                        amount: normalizedShippingMaterialsCost,
+                        category: SHIPPING_EXPENSE_CATEGORIES.POSTAGE,
+                        description: `Shipping label/postage for transaction ${transactionId}`,
+                        paymentMethod: 'Postage',
+                        notes: 'Logged from manual transaction entry.',
+                        incurredOn,
+                    });
+                }
 
-                const transSql = `INSERT INTO transactions (id, platform, shippingCost, packagingCost, totalSalePrice, netProfit) VALUES (?, ?, ?, ?, ?, ?)`;
-                db.run(transSql, [transactionId, platform, customerPaidShipping, parsedPackaging, totalSalePrice, netProfit], function(err) {
+                const transSql = `INSERT INTO transactions (id, platform, shippingCost, packagingCost, totalSalePrice, netProfit, isShipped, entryType) VALUES (?, ?, ?, ?, ?, ?, 1, ?)`;
+                db.run(transSql, [transactionId, platform, shippingPaid, parsedPackaging, totalSalePrice, netProfit, 'sale'], function(err) {
                     if (err) {
                         db.run("ROLLBACK");
                         return res.status(500).json({ error: `Failed to create transaction record: ${err.message}` });
                     }
 
                     // This function will process each item one by one.
+                    function finalizeTransaction() {
+                        db.run("COMMIT", (err) => {
+                            if (err) {
+                                db.run("ROLLBACK");
+                                return res.status(500).json({ error: `Failed to commit transaction: ${err.message}` });
+                            }
+                            return res.status(201).json({ id: transactionId });
+                        });
+                    }
+
+                    function persistShippingExpenses() {
+                        if (!shippingExpenseEntries.length) {
+                            finalizeTransaction();
+                            return;
+                        }
+                        const saveNext = (index) => {
+                            if (index >= shippingExpenseEntries.length) {
+                                finalizeTransaction();
+                                return;
+                            }
+                            recordShippingExpense(db, shippingExpenseEntries[index])
+                                .then(() => saveNext(index + 1))
+                                .catch((error) => {
+                                    console.error('[transactions] shipping expense insert failed:', error);
+                                    db.run("ROLLBACK");
+                                    res.status(500).json({ error: error.message || 'Failed to save shipping expense.' });
+                                });
+                        };
+                        saveNext(0);
+                    }
+
                     function processItems(index) {
                         if (index >= items.length) {
-                            // All items are processed, commit the transaction.
-                            db.run("COMMIT", (err) => {
-                                if (err) {
-                                    db.run("ROLLBACK");
-                                    return res.status(500).json({ error: `Failed to commit transaction: ${err.message}` });
-                                }
-                                return res.status(201).json({ id: transactionId, packagingCost });
-                            });
+                            persistShippingExpenses();
                             return;
                         }
 
@@ -1131,6 +1707,33 @@ export default function(db, options = {}) {
             res.status(502).json({ error: 'Failed to search cards.' });
         }
     });
+
+    router.get('/cards/price-basis', async (req, res) => {
+        const scryfallId = (req.query.scryfallId || '').trim();
+        const finish = normalizeFinish(req.query.finish || 'normal');
+        if (!scryfallId) {
+            return res.status(400).json({ error: 'scryfallId is required.' });
+        }
+        try {
+            const inventoryLow = await fetchInventoryLowByScryfall(scryfallId);
+            if (Number.isFinite(inventoryLow) && inventoryLow > 0) {
+                return res.json({ tcgLow: inventoryLow, source: 'inventory' });
+            }
+            const uuid = await findUuidByScryfallId(scryfallId);
+            const priceJson = uuid ? await fetchPriceHistoryByUuid(uuid) : null;
+            if (priceJson) {
+                const referencePrice = extractRetailPrice(priceJson, finish) ?? extractRetailPrice(priceJson, 'normal');
+                if (Number.isFinite(referencePrice)) {
+                    return res.json({ tcgLow: referencePrice, source: 'price_history' });
+                }
+            }
+            res.json({ tcgLow: null, source: 'unavailable' });
+        } catch (error) {
+            console.error('[cards] price basis error:', error);
+            res.status(500).json({ error: 'Failed to load pricing reference.' });
+        }
+    });
+
     router.get('/printings/:cardName', async (req, res) => {
         try {
             const cardName = req.params.cardName;

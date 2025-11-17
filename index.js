@@ -11,7 +11,8 @@ import fs from 'fs';
 import { initializeCardNameCache } from './utils/card-data.js';
 import { startDynDnsUpdater } from './utils/dyn-dns.js';
 import { createSessionAuth } from './utils/session-auth.js';
-import { setWebhookUrl } from './discord.js';
+import { setWebhookUrl, setManaPoolWebhookUrl } from './discord.js';
+import { initAutomationScheduler } from './utils/automation-runner.js';
 
 // --- Workaround for __dirname in ES Modules ---
 const __filename = fileURLToPath(import.meta.url);
@@ -23,11 +24,18 @@ const PORT = process.env.PORT || 3000;
 const APP_USER = process.env.APP_USER;
 const APP_PASSWORD = process.env.APP_PASSWORD;
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
+const MANAPOOL_WEBHOOK_URL = process.env.MANAPOOL_WEBHOOK_URL;
 
 if (DISCORD_WEBHOOK_URL) {
       setWebhookUrl(DISCORD_WEBHOOK_URL);
 } else {
       console.warn('[discord] DISCORD_WEBHOOK_URL is not configured. Discord logging is disabled.');
+}
+
+if (MANAPOOL_WEBHOOK_URL) {
+      setManaPoolWebhookUrl(MANAPOOL_WEBHOOK_URL);
+} else {
+      console.warn('[discord] MANAPOOL_WEBHOOK_URL is not configured. ManaPool automation alerts are disabled.');
 }
 
 if (!APP_USER || !APP_PASSWORD) {
@@ -116,17 +124,20 @@ const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READWRITE | sqlite3.OPEN_C
                               )
                         `); 
                         db.run(`
-                              CREATE TABLE IF NOT EXISTS transactions (
-                                    id TEXT PRIMARY KEY,
-                                    soldAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-                                    platform TEXT NOT NULL,
-                                    shippingCost REAL NOT NULL,
-                                    packagingCost REAL NOT NULL DEFAULT 0,
-                                    totalSalePrice REAL NOT NULL,
-                                    netProfit REAL NOT NULL,
-                                    packingSlipPath TEXT,
-                                    manapoolOrderId TEXT UNIQUE
-                              )
+                        CREATE TABLE IF NOT EXISTS transactions (
+                              id TEXT PRIMARY KEY,
+                              soldAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                              platform TEXT NOT NULL,
+                              shippingCost REAL NOT NULL,
+                              packagingCost REAL NOT NULL DEFAULT 0,
+                              totalSalePrice REAL NOT NULL,
+                              netProfit REAL NOT NULL,
+                              packingSlipPath TEXT,
+                              manapoolOrderId TEXT UNIQUE,
+                              isShipped INTEGER DEFAULT 1,
+                              entryType TEXT NOT NULL DEFAULT 'sale',
+                              notes TEXT
+                        )
                         `);
 
                         db.run(`
@@ -147,8 +158,31 @@ const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READWRITE | sqlite3.OPEN_C
                                     updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
                               )
                         `);
+                        db.run(`
+                              CREATE TABLE IF NOT EXISTS expense_entries (
+                                    id TEXT PRIMARY KEY,
+                                    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                    incurredOn DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                    amount REAL NOT NULL,
+                                    category TEXT,
+                                    description TEXT NOT NULL,
+                                    paymentMethod TEXT,
+                                    linkedInventoryId TEXT,
+                                    notes TEXT,
+                                    FOREIGN KEY (linkedInventoryId) REFERENCES inventory (id) ON DELETE SET NULL
+                              )
+                        `);
+                        db.run(`
+                              CREATE TABLE IF NOT EXISTS inventory_snapshots (
+                                    id TEXT PRIMARY KEY,
+                                    capturedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                                    totalValue REAL NOT NULL,
+                                    inventoryCount INTEGER NOT NULL DEFAULT 0,
+                                    costBasis REAL NOT NULL DEFAULT 0,
+                                    notes TEXT
+                              )
+                        `);
 
-                        cleanupTemporaryLists();
                         columnEnsureTasks.push(ensureColumn(db, 'imported_lists', 'name', 'TEXT'));
                         columnEnsureTasks.push(ensureColumn(db, 'imported_lists', 'updatedAt', 'DATETIME DEFAULT CURRENT_TIMESTAMP'));
                         columnEnsureTasks.push(ensureColumn(db, 'imported_lists', 'lastAccessedAt', 'DATETIME DEFAULT CURRENT_TIMESTAMP'));
@@ -158,6 +192,10 @@ const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READWRITE | sqlite3.OPEN_C
                         columnEnsureTasks.push(ensureColumn(db, 'inventory', 'tcgMarketPrice', 'REAL'));
                         columnEnsureTasks.push(ensureColumn(db, 'transactions', 'manapoolOrderId', 'TEXT'));
                         columnEnsureTasks.push(ensureColumn(db, 'transactions', 'packagingCost', 'REAL DEFAULT 0'));
+                        columnEnsureTasks.push(ensureColumn(db, 'transactions', 'isShipped', 'INTEGER DEFAULT 1'));
+                        columnEnsureTasks.push(ensureColumn(db, 'transactions', 'entryType', "TEXT DEFAULT 'sale'"));
+                        columnEnsureTasks.push(ensureColumn(db, 'transactions', 'notes', 'TEXT'));
+                        columnEnsureTasks.push(ensureColumn(db, 'inventory_snapshots', 'costBasis', 'REAL NOT NULL DEFAULT 0'));
                   });
 
                   const waitForColumns = columnEnsureTasks.length
@@ -176,6 +214,9 @@ const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READWRITE | sqlite3.OPEN_C
                         } catch (indexErr) {
                               console.error('[db] Failed ensuring ManaPool index:', indexErr.message);
                         }
+                        cleanupTemporaryLists();
+                        removeMigratedExpenseEntries();
+                        await initAutomationScheduler(db);
                         startServerOnce();
                   });
             }
@@ -222,7 +263,6 @@ function ensureManaPoolIndex(database) {
       });
 }
 
-
 /**
   * Deletes any temporary lists that are older than 24 hours.
   * This function is now called on server startup.
@@ -242,6 +282,19 @@ function cleanupTemporaryLists() {
       });
 }
 
+function removeMigratedExpenseEntries() {
+      const sql = `DELETE FROM expense_entries WHERE notes LIKE 'Migrated packagingCost:%'`;
+      db.run(sql, function(err) {
+            if (err) {
+                  console.error('[expenses] Failed to remove legacy packaging expenses:', err.message);
+                  return;
+            }
+            if (this.changes > 0) {
+                  console.log(`[expenses] Removed ${this.changes} migrated packaging cost entries.`);
+            }
+      });
+}
+
 const uploadDir = path.join(__dirname, 'private', 'uploads');
 if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
@@ -257,6 +310,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/cards/:set/:number', (req, res) => res.sendFile(path.join(__dirname, 'public', 'card-info.html')));
 app.get('/list/:listId', (req, res) => res.sendFile(path.join(__dirname, 'public', 'list.html')));
 app.get('/list-buylist/:listId', (req, res) => res.sendFile(path.join(__dirname, 'public', 'list-buylist.html')));
+app.get('/finances', (req, res) => res.sendFile(path.join(__dirname, 'public', 'finances.html')));
 app.get('/binder/:listId', (req, res) => res.sendFile(path.join(__dirname, 'public', 'binder.html')));
 
 // --- Scheduled Tasks ---
@@ -280,4 +334,3 @@ function startServerOnce() {
       });
 }
 startServerOnce.started = false;
-

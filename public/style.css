@@ -34,6 +34,46 @@ body {
     overflow: hidden;
 }
 
+.shipping-alert {
+    margin: 0 auto 24px;
+    width: 100%;
+}
+
+.shipping-alert[hidden] {
+    display: none !important;
+}
+
+.shipping-alert-body {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 18px;
+    padding: 16px 20px;
+    border-radius: 18px;
+    border: 1px solid rgba(251, 191, 36, 0.4);
+    background: rgba(251, 191, 36, 0.1);
+    color: var(--text-color);
+}
+
+.shipping-alert-eyebrow {
+    margin: 0 0 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.75rem;
+    color: var(--warning-color);
+}
+
+.shipping-alert-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.shipping-alert-actions .primary-btn,
+.shipping-alert-actions .ghost-btn {
+    min-width: 140px;
+}
+
 .container::after {
     content: '';
     position: absolute;

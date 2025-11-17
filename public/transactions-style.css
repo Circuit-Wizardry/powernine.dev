@@ -97,6 +97,10 @@ body {
     border-color: var(--warning-color);
     box-shadow: 0 8px 20px rgba(251, 191, 36, 0.2);
 }
+.transaction-item.awaiting-shipment {
+    border-color: var(--warning-color);
+    box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.35);
+}
 
 .transaction-info {
     display: flex;
@@ -138,6 +142,11 @@ body {
 .transaction-badge.manapool-badge {
     border-color: rgba(251, 191, 36, 0.45);
     background: rgba(251, 191, 36, 0.15);
+    color: var(--warning-color);
+}
+.transaction-badge.shipping-badge {
+    border-color: rgba(251, 191, 36, 0.45);
+    background: rgba(251, 191, 36, 0.22);
     color: var(--warning-color);
 }
 
@@ -351,6 +360,12 @@ hr { border-color: var(--border-color); opacity: 0.5; }
 .info-banner.manapool-banner {
     border-color: rgba(251, 191, 36, 0.4);
     background: rgba(251, 191, 36, 0.12);
+    color: var(--warning-color);
+    font-weight: 600;
+}
+.info-banner.shipping-banner {
+    border-color: rgba(251, 191, 36, 0.35);
+    background: rgba(251, 191, 36, 0.1);
     color: var(--warning-color);
     font-weight: 600;
 }

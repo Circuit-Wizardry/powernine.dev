@@ -1,5 +1,7 @@
 // witherflare/mtg-deal-finder/scrapers/manapool.js
 
+const SELF_SELLER_NAME = (process.env.MANAPOOL_SELLER_NAME || 'Fells Forge TCG').trim().toLowerCase();
+
 /**
  * UPDATED: Now accepts a foilType and a targetCondition.
  * It finds the cheapest listing (assumed to be the first match) for the target condition OR BETTER.
@@ -36,7 +38,7 @@ async function scrapeManaPoolListings(page, manaPoolUrl, foilType, targetConditi
                 // The site changed from a <p> tag to nested <div>s for the seller name.
                 const sellerNameElement = item.locator('a.text-sm.truncate.font-medium, div.text-sm.truncate.font-medium').first();
                 const sellerName = await sellerNameElement.textContent({ timeout: 1000 });
-                if (sellerName && sellerName.trim().toLowerCase() === 'fells forge tcg') {
+                if (sellerName && SELF_SELLER_NAME && sellerName.trim().toLowerCase() === SELF_SELLER_NAME) {
                     continue; // Skip this seller
                 }
 

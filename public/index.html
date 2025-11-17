@@ -25,7 +25,7 @@
             <button type="button" class="tab-button" id="inventory-management-btn" aria-label="Manage inventory">
                 <img src="./media/inventory.png" alt="" aria-hidden="true">
             </button>
-            <button type="button" class="tab-button" id="transaction-history-btn" aria-label="View transaction history">
+            <button type="button" class="tab-button" id="manage-finances-btn" aria-label="Manage finances">
                 <img src="./media/transaction-history.png" alt="" aria-hidden="true">
             </button>
         </div>
@@ -33,6 +33,18 @@
         <!-- <button id="generate-full-csv" class="btn">Generate Full CSV for ManaPool & TCGPlayer</button> -->
 
         <div class="title">powernine.dev</div>
+        <div id="shipping-alert" class="shipping-alert" hidden>
+            <div class="shipping-alert-body">
+                <div>
+                    <p class="shipping-alert-eyebrow">Fulfillment Needed</p>
+                    <p id="shipping-alert-text">You have ManaPool orders waiting to ship.</p>
+                </div>
+                <div class="shipping-alert-actions">
+                    <button type="button" id="refresh-shipping-alert" class="ghost-btn">Refresh</button>
+                    <a href="/transactions.html" class="primary-btn">View Transactions</a>
+                </div>
+            </div>
+        </div>
         <p style="text-align: center; margin-top: -2rem; margin-bottom: 1rem; font-size: 1rem; color: gray;">the <strong>free</strong> mtg trading & market analysis tool</p>
         <center><input class="search-bar" id="search-bar" type="text" placeholder="Search..." aria-label="Search"></center>
         <button id="recent-lists-btn" class="recent-open-button" type="button">View Recent Lists</button>
