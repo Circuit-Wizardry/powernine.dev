@@ -8,6 +8,7 @@ import { getCardNames } from './card-data.js';
 import axios from 'axios';
 import { randomUUID } from 'crypto';
 import { log } from '../discord.js';
+import { sendAutomationLifecycleWebhook } from './automation-alerts.js';
 import { chromium } from 'playwright'; // Import Playwright
 // Import your scraper functions (ensure paths are correct)
 import { scrapeTcgplayerData } from '../scrapers/tcgplayer.js';
@@ -677,11 +678,27 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
     router.post('/manapool/prices/automation', express.json(), async (req, res) => {
         try {
             const previous = await getAutomationSettings(db);
-            const settings = await saveAutomationSettings(req.body || {}, db);
-            if (!previous?.enabled && settings.enabled) {
-                await snapshotAutomationBaselines(db);
+            const previousEnabled = Boolean(previous?.enabled);
+            const effectivePayload = { ...req.body };
+            const requestedEnabled = Boolean(effectivePayload.enabled);
+            if (previousEnabled && requestedEnabled) {
+                effectivePayload.enabled = false;
+            }
+            const settings = await saveAutomationSettings(effectivePayload, db);
+            let baselineCount = null;
+            if (!previousEnabled && settings.enabled) {
+                baselineCount = await snapshotAutomationBaselines(db);
             }
             updateAutomationScheduler(settings);
+            if (!previousEnabled && settings.enabled) {
+                await sendAutomationLifecycleWebhook('enabled', settings, { baselineCount });
+            } else if (previousEnabled && !settings.enabled) {
+                await sendAutomationLifecycleWebhook('disabled', settings);
+            } else if (previousEnabled && settings.enabled === false) {
+                await sendAutomationLifecycleWebhook('disabled', settings, {
+                    reason: 'Server restart in progress or automation reset requested.'
+                });
+            }
             res.json({ settings });
         } catch (error) {
             console.error('[manapool] automation save error:', error);
@@ -706,6 +723,9 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
                 ourPrice: entry.ourPriceCents != null ? entry.ourPriceCents / 100 : null,
                 targetPrice: entry.targetPriceCents != null ? entry.targetPriceCents / 100 : null,
                 baselinePrice: entry.baselinePriceCents != null ? entry.baselinePriceCents / 100 : null,
+                floorAnchor: entry.floorAnchorCents != null ? entry.floorAnchorCents / 100 : null,
+                floorStop: entry.floorStopCents != null ? entry.floorStopCents / 100 : null,
+                floorSource: entry.floorSource || null,
                 competitorPrice: entry.competitorPriceCents != null ? entry.competitorPriceCents / 100 : null
             }));
             res.json({

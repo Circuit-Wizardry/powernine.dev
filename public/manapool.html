@@ -81,7 +81,7 @@
                     <div class="automation-actions">
                         <button type="submit" class="primary-btn" id="automation-save-btn">Save &amp; Schedule</button>
                         <button type="button" class="ghost-btn" id="automation-advanced-btn">Advanced Settings</button>
-                        <button type="button" class="ghost-btn" id="automation-debug-btn">Automation Debug</button>
+                        <button type="button" class="ghost-btn" id="automation-debug-btn">Show Live Floors</button>
                     </div>
                     <p class="automation-status" id="automation-status">Automation is currently off.</p>
                 </form>
@@ -188,22 +188,22 @@
     <div id="automation-debug-modal" class="mp-modal" hidden>
         <div class="mp-modal-dialog automation-debug-dialog">
             <button type="button" class="mp-modal-close" data-close-automation-debug>&times;</button>
-            <h2>Automation Debug</h2>
-            <p class="modal-lede">Preview how the auto-pricing job interprets current listings and competitors.</p>
+            <h2>Live Floor Preview</h2>
+            <p class="modal-lede">See the price each card will stop at (global floor vs. overrides) before automation undercuts again.</p>
             <p class="automation-debug-status" id="automation-debug-status"></p>
             <div class="table-wrapper automation-debug-table">
                 <table>
                     <thead>
                         <tr>
                             <th>Card</th>
+                            <th>Floor Stop</th>
                             <th>Our Price</th>
                             <th>Competitor</th>
-                            <th>Seller</th>
                             <th>Decision</th>
                         </tr>
                     </thead>
                     <tbody id="automation-debug-table-body">
-                        <tr><td colspan="5" class="empty">No data loaded.</td></tr>
+                        <tr><td colspan="5" class="empty">No floor data loaded.</td></tr>
                     </tbody>
                 </table>
             </div>

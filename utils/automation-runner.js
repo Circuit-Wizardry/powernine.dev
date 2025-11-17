@@ -4,8 +4,10 @@ import {
     pushInventoryToManaPool,
     getLocalInventoryRows,
     fetchVariantFloorsForInventory,
-    getAutomationBaselines
+    getAutomationBaselines,
+    snapshotAutomationBaselines
 } from './manapool-service.js';
+import { sendAutomationLifecycleWebhook } from './automation-alerts.js';
 
 const MINUTE_MS = 60 * 1000;
 const MIN_INTERVAL_MINUTES = 5;
@@ -23,6 +25,7 @@ let automationTimer = null;
 let currentSettings = null;
 let isAutomationRunning = false;
 let pendingSettings = null;
+let hasPrimedBaselinesThisSession = false;
 
 const minutesToMs = (value) => {
     const minutes = Number(value);
@@ -56,6 +59,19 @@ const scheduleNextRun = (immediate = false) => {
     currentSettings.nextRunAt = nextRunAt;
     updateNextRunTimestamp(nextRunAt);
     automationTimer = setTimeout(runAutomationCycle, delay);
+};
+
+const primeAutomationFloorCache = async (reason = 'startup') => {
+    if (!automationDb || !currentSettings?.enabled) return;
+    if (hasPrimedBaselinesThisSession) return;
+    try {
+        const snapshotCount = await snapshotAutomationBaselines(automationDb);
+        hasPrimedBaselinesThisSession = true;
+        console.log(`[automation] Primed floor cache (${reason}): ${snapshotCount} entries.`);
+    } catch (error) {
+        hasPrimedBaselinesThisSession = false;
+        console.warn(`[automation] Failed to prime automation floor cache (${reason}):`, error.message || error);
+    }
 };
 
 const runAutomationCycle = async () => {
@@ -94,12 +110,24 @@ export async function initAutomationScheduler(db) {
         const { settings, immediate } = pendingSettings;
         pendingSettings = null;
         applySettings(settings);
+        await primeAutomationFloorCache('pending-settings');
         scheduleNextRun(immediate);
         return;
     }
     try {
-        const settings = await getAutomationSettings(automationDb);
+        let settings = await getAutomationSettings(automationDb);
+        if (settings?.enabled) {
+            settings = await saveAutomationSettings({ enabled: false, nextRunAt: null }, automationDb);
+            await sendAutomationLifecycleWebhook('disabled', settings, {
+                reason: 'Server restarted; automation paused until you re-enable it.'
+            });
+        }
         applySettings(settings);
+        if (settings?.enabled) {
+            await primeAutomationFloorCache('startup');
+        } else {
+            hasPrimedBaselinesThisSession = false;
+        }
         scheduleNextRun(false);
     } catch (error) {
         console.error('[automation] Unable to initialize scheduler:', error);

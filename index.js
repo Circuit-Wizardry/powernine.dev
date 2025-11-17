@@ -216,8 +216,8 @@ const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READWRITE | sqlite3.OPEN_C
                         }
                         cleanupTemporaryLists();
                         removeMigratedExpenseEntries();
-                        await initAutomationScheduler(db);
                         startServerOnce();
+                        await initAutomationScheduler(db);
                   });
             }
       }

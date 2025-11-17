@@ -180,10 +180,11 @@ const applyAutomationStateToAdvancedForm = () => {
 
 const formatFloorSummary = () => {
     const value = Number(automationState.floorValue);
+    const anchorNote = 'initial cached price captured when automation is enabled (toggle automation off/on to refresh it)';
     if (automationState.floorType === 'absolute') {
-        return `Won't drop more than $${formatCurrencyValue(value)} below the starting price.`;
+        return `Won't drop more than $${formatCurrencyValue(value)} below the ${anchorNote}.`;
     }
-    return `Won't drop more than ${formatPercentValue(value)}% below the starting price.`;
+    return `Won't drop more than ${formatPercentValue(value)}% below the ${anchorNote}.`;
 };
 
 const updateAutomationStatus = () => {
@@ -209,7 +210,7 @@ const updateAutomationStatus = () => {
 const renderAutomationDebugTable = (entries = []) => {
     if (!automationDebugTableBody) return;
     if (!Array.isArray(entries) || !entries.length) {
-        automationDebugTableBody.innerHTML = '<tr><td colspan="5" class="empty">No automation data to display.</td></tr>';
+        automationDebugTableBody.innerHTML = '<tr><td colspan="5" class="empty">No floor data to display.</td></tr>';
         return;
     }
     automationDebugTableBody.innerHTML = entries.map((entry) => {
@@ -221,6 +222,18 @@ const renderAutomationDebugTable = (entries = []) => {
         const baselineText = entry.baselinePrice !== null && entry.baselinePrice !== undefined
             ? `<div class="muted">Baseline ${formatDebugCurrency(entry.baselinePrice)}</div>`
             : '';
+        const ourAnchorText = entry.floorAnchor !== null && entry.floorAnchor !== undefined
+            ? `<div class="muted">Anchor ${formatDebugCurrency(entry.floorAnchor)}</div>`
+            : '';
+        const floorStopText = entry.floorStop !== null && entry.floorStop !== undefined
+            ? formatDebugCurrency(entry.floorStop)
+            : '--';
+        const floorMeta = [
+            entry.floorSource ? escapeHtml(entry.floorSource) : '',
+            entry.floorStop !== entry.floorAnchor && entry.floorAnchor !== null && entry.floorAnchor !== undefined
+                ? `Anchor ${formatDebugCurrency(entry.floorAnchor)}`
+                : ''
+        ].filter(Boolean).map((text) => `<div class="muted">${text}</div>`).join('');
         const actionLabel = entry.action || 'hold';
         const reasonText = entry.reason ? `<div class="muted">${escapeHtml(entry.reason)}</div>` : '';
         const sellerText = entry.competitorSeller
@@ -235,9 +248,9 @@ const renderAutomationDebugTable = (entries = []) => {
                     <strong>${escapeHtml(entry.name || 'Unknown')}</strong>
                     ${meta ? `<div class="muted">${escapeHtml(meta)}</div>` : ''}
                 </td>
-                <td>${formatDebugCurrency(entry.ourPrice)}${baselineText}</td>
-                <td>${competitorPriceText}</td>
-                <td>${sellerText}</td>
+                <td>${floorStopText}${floorMeta}</td>
+                <td>${formatDebugCurrency(entry.ourPrice)}${baselineText}${ourAnchorText}</td>
+                <td>${competitorPriceText}${sellerText !== '--' ? `<div class="muted">${sellerText}</div>` : ''}</td>
                 <td>${escapeHtml(actionLabel)}${reasonText}</td>
             </tr>
         `;
@@ -246,12 +259,12 @@ const renderAutomationDebugTable = (entries = []) => {
 
 const loadAutomationDebugData = async () => {
     if (!automationDebugStatusEl || !automationDebugTableBody) return;
-    automationDebugStatusEl.textContent = 'Loading automation snapshot...';
-    automationDebugTableBody.innerHTML = '<tr><td colspan="5" class="empty">Loading...</td></tr>';
+    automationDebugStatusEl.textContent = 'Calculating live floors...';
+    automationDebugTableBody.innerHTML = '<tr><td colspan="5" class="empty">Loading live floor data...</td></tr>';
     try {
         const response = await fetch('/api/manapool/prices/automation/debug');
         if (!response.ok) {
-            let message = response.statusText || 'Failed to load automation debug data.';
+            let message = response.statusText || 'Failed to load live floor data.';
             try {
                 const errorData = await response.json();
                 message = errorData?.error || message;
@@ -264,11 +277,11 @@ const loadAutomationDebugData = async () => {
         const entries = Array.isArray(data.entries) ? data.entries : [];
         renderAutomationDebugTable(entries);
         automationDebugStatusEl.textContent = data?.inspected
-            ? `Showing ${entries.length} of ${data.inspected} inspected listings.`
-            : `Showing ${entries.length} listings.`;
+            ? `Tracking live floors for ${data.inspected} active cards.`
+            : `Showing live floors for ${entries.length} cards.`;
     } catch (error) {
-        automationDebugStatusEl.textContent = error.message || 'Failed to load automation debug data.';
-        automationDebugTableBody.innerHTML = '<tr><td colspan="5" class="empty">Unable to load automation debug data.</td></tr>';
+        automationDebugStatusEl.textContent = error.message || 'Failed to load live floor data.';
+        automationDebugTableBody.innerHTML = '<tr><td colspan="5" class="empty">Unable to load live floor data.</td></tr>';
     }
 };
 

@@ -650,26 +650,40 @@ const pushInventoryRows = async (items = [], options = {}) => {
     }
 
     const applyAutomationFloors = (targetCents, context, remoteListing) => {
-        if (!automationOptions?.floorRules) return Math.max(1, targetCents);
+        if (!automationOptions?.floorRules) return Math.max(1, Math.round(targetCents));
         const floorRules = automationOptions.floorRules;
         const baselinePrice = getBaselineForContext(context);
-        const remotePriceCents = Number(remoteListing?.priceCents);
+        const remotePriceValue = Number(remoteListing?.priceCents);
+        const remotePriceCents = Number.isFinite(remotePriceValue) && remotePriceValue > 0
+            ? Math.round(remotePriceValue)
+            : null;
         const inventoryPriceValue = context?.inventory?.tcgMarketPrice;
         const inventoryPriceCents = Number.isFinite(Number(inventoryPriceValue))
             ? Math.round(Number(inventoryPriceValue) * 100)
             : null;
+        const normalizedTarget = Math.max(1, Math.round(targetCents));
         const startingPrice = Number.isFinite(baselinePrice) && baselinePrice > 0
             ? baselinePrice
-            : (Number.isFinite(remotePriceCents) && remotePriceCents > 0
-                ? remotePriceCents
-                : (Number.isFinite(inventoryPriceCents) && inventoryPriceCents > 0 ? inventoryPriceCents : Math.max(1, Math.round(targetCents))));
+            : ([remotePriceCents, inventoryPriceCents, normalizedTarget]
+                .find((value) => Number.isFinite(value) && value > 0) || normalizedTarget);
         let minAllowed = 1;
+        let floorSource = null;
+        const clampPercent = (value) => Math.min(100, Math.max(0, Number(value) || 0));
+        const applyFloor = (value, source) => {
+            if (!Number.isFinite(value)) return;
+            const rounded = Math.max(1, Math.round(value));
+            if (rounded >= minAllowed) {
+                minAllowed = rounded;
+                floorSource = source || floorSource;
+            }
+        };
         if (floorRules.global && startingPrice > 0) {
             if (floorRules.global.type === 'percent') {
-                const pct = Math.min(100, Math.max(0, floorRules.global.value));
-                minAllowed = Math.max(minAllowed, Math.round(startingPrice * (1 - pct / 100)));
+                const pct = clampPercent(floorRules.global.value);
+                applyFloor(startingPrice * (1 - pct / 100), `Global ${pct}% drop limit`);
             } else if (floorRules.global.type === 'absolute') {
-                minAllowed = Math.max(minAllowed, startingPrice - Math.round(floorRules.global.value * 100));
+                const drop = Math.max(0, Number(floorRules.global.value) || 0);
+                applyFloor(startingPrice - Math.round(drop * 100), `Global $${drop.toFixed(2)} drop limit`);
             }
         }
         const overrides = floorRules.overrides;
@@ -681,13 +695,21 @@ const pushInventoryRows = async (items = [], options = {}) => {
             const override = overrides.get(specificKey) || overrides.get(fallbackKey);
             if (override) {
                 if (override.type === 'percent' && startingPrice > 0) {
-                    minAllowed = Math.max(minAllowed, Math.round(startingPrice * (override.value / 100)));
+                    const pct = clampPercent(override.value);
+                    applyFloor(startingPrice * (pct / 100), `Override ${pct}% of anchor`);
                 } else if (override.type === 'absolute') {
-                    minAllowed = Math.max(minAllowed, Math.round(override.value * 100));
+                    const absValue = Math.max(0, Number(override.value) || 0);
+                    applyFloor(absValue * 100, `Override floor $${absValue.toFixed(2)}`);
                 }
             }
         }
-        return Math.max(minAllowed, Math.round(targetCents));
+        const finalPrice = Math.max(minAllowed, normalizedTarget);
+        if (context) {
+            context.__automationFloorAnchor = startingPrice;
+            context.__automationFloorMin = minAllowed;
+            context.__automationFloorSource = floorSource;
+        }
+        return finalPrice;
     };
 
     const determineAutomationPrice = (pair, remoteListing) => {
@@ -779,6 +801,18 @@ const pushInventoryRows = async (items = [], options = {}) => {
         } else if (!entry.price_cents) {
             entry.price_cents = Math.max(1, fallbackPrice || 10000);
         }
+        if (automationOptions) {
+            const flooredPrice = applyAutomationFloors(entry.price_cents, context, remoteListing);
+            if (flooredPrice !== entry.price_cents) {
+                entry.price_cents = flooredPrice;
+                if (context) {
+                    const enforcedNote = `Floor enforced at $${(flooredPrice / 100).toFixed(2)}`;
+                    context.__automationReason = context.__automationReason
+                        ? `${context.__automationReason}; ${enforcedNote}`
+                        : enforcedNote;
+                }
+            }
+        }
         delete entry.base_price_cents;
 
         if (debugCollector && context?.inventory) {
@@ -794,6 +828,9 @@ const pushInventoryRows = async (items = [], options = {}) => {
                 ourPriceCents: previousPrice || null,
                 targetPriceCents: entry.price_cents || null,
                 baselinePriceCents: baselinePrice || null,
+                floorAnchorCents: context.__automationFloorAnchor || baselinePrice || null,
+                floorStopCents: context.__automationFloorMin || null,
+                floorSource: context.__automationFloorSource || null,
                 competitorPriceCents: variantInfo?.priceCents ?? null,
                 competitorSeller: variantInfo?.sellerName || null,
                 competitorIsSelf: Boolean(variantInfo?.isSelf),
@@ -1141,7 +1178,10 @@ export async function pullInventoryFromManaPool() {
 
 export async function pushInventoryToManaPool(db, options = {}) {
     const localInventory = await getLocalInventoryRows(db);
-    const automation = await buildUndercutAutomationContext(localInventory, options.priceOffsetCents ?? 1);
+    let automation = options.automation || null;
+    if (!automation) {
+        automation = await buildUndercutAutomationContext(localInventory, options.priceOffsetCents ?? 1);
+    }
     return pushInventoryRows(localInventory, {
         priceOffsetCents: options.priceOffsetCents ?? 1,
         deleteMissing: options.deleteMissing ?? true,
@@ -1169,7 +1209,10 @@ export async function pushInventoryItemsToManaPool(db, inventoryIds = [], option
     logVariantSellersForItems(rows).catch((error) => {
         console.warn('[manapool] Variant seller logging failed:', error.message || error);
     });
-    const automation = await buildUndercutAutomationContext(rows, options?.priceOffsetCents ?? 1);
+    let automation = options?.automation || null;
+    if (!automation) {
+        automation = await buildUndercutAutomationContext(rows, options?.priceOffsetCents ?? 1);
+    }
     return pushInventoryRows(rows, {
         priceOffsetCents: options?.priceOffsetCents,
         deleteMissing: false,
