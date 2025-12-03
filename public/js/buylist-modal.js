@@ -40,11 +40,30 @@
             sortSelect: document.getElementById('buylist-sort-select'),
             container: document.getElementById('buylist-analysis-container'),
             status: document.getElementById('buylist-snapshot-status'),
-            subtitle: document.getElementById('buylist-modal-subtitle')
+            subtitle: document.getElementById('buylist-modal-subtitle'),
+            generateBtn: document.getElementById('buylist-generate-message-btn'),
+            messageModal: document.getElementById('buylist-message-modal'),
+            messageBackdrop: document.querySelector('#buylist-message-modal .buylist-modal-backdrop'),
+            messageCloseBtn: document.getElementById('buylist-message-close-btn'),
+            messageCards: document.getElementById('buylist-message-cards'),
+            messagePrompt: document.getElementById('buylist-message-prompt'),
+            messageOutput: document.getElementById('buylist-message-output'),
+            messageGenerateBtn: document.getElementById('buylist-message-generate-btn'),
+            messageCopyBtn: document.getElementById('buylist-message-copy-btn'),
+            messageStatus: document.getElementById('buylist-message-status'),
+            messageCount: document.getElementById('buylist-message-count'),
+            messageSlider: document.getElementById('buylist-message-slider'),
+            messageSliderValue: document.getElementById('buylist-message-slider-value')
         };
 
         const CARD_IMAGE_PLACEHOLDER = '/image/card-placeholder.jpg';
         const BUYLIST_KEYS = ['ckBuylist', 'scgBuylist', 'csiBuylist'];
+        const BUYLIST_LABELS = {
+            ckBuylist: 'Card Kingdom',
+            scgBuylist: 'Star City Games',
+            csiBuylist: 'CoolStuffInc'
+        };
+        const DEFAULT_MESSAGE_PROMPT = 'Draft a friendly message to a card seller asking if they\'d be open to my offer. Keep it informal. Examples: "Hey, I\'m interested in these cards:"; "Hi! I\'m interested in these cards". Do NOT include asterisks or markdown formatting. Keep it 1-2 sentences. List the cards interested in and the TOTAL price for all of them at the end. Do not include individual prices. Add whitespace between the card list so they\'re on different lines. Include amount of each card in the form (1) (2) etc';
 
         const priceTooltip = document.createElement('div');
         priceTooltip.className = 'buylist-tooltip';
@@ -84,7 +103,11 @@
             escHandler: null,
             snapshotSaveTimeout: null,
             saveSnapshot,
-            onSnapshotChange
+            onSnapshotChange,
+            messageEscHandler: null,
+            messageCandidates: [],
+            primaryWasOpenBeforeMessage: false,
+            negotiatePercent: 0.9
         };
 
         const toNumeric = (value) => {
@@ -603,6 +626,264 @@
             return toNumeric(item.metrics.tcgLow) ?? Infinity;
         };
 
+        const getBestMarginSummary = (item) => {
+            updateMarginsForItem(item);
+            let bestKey = null;
+            let bestPercent = -Infinity;
+            let bestDollar = -Infinity;
+
+            BUYLIST_KEYS.forEach((key) => {
+                const entry = item.metrics.margins?.[key];
+                if (!entry) return;
+                const percent = Number(entry.percent);
+                const dollar = Number(entry.dollar);
+                if (Number.isFinite(percent) && percent > bestPercent) {
+                    bestPercent = percent;
+                    bestDollar = Number.isFinite(dollar) ? dollar : bestDollar;
+                    bestKey = key;
+                    return;
+                }
+                if (!Number.isFinite(bestPercent) && Number.isFinite(dollar) && dollar > bestDollar) {
+                    bestDollar = dollar;
+                    bestKey = key;
+                }
+            });
+
+            const reference = getReferencePrice(item);
+            const buylistValue = bestKey ? toNumeric(item.metrics[bestKey]) : null;
+
+            return {
+                key: bestKey,
+                vendorLabel: bestKey ? BUYLIST_LABELS[bestKey] || bestKey : null,
+                buylistValue,
+                reference,
+                marginPercent: Number.isFinite(bestPercent) ? bestPercent : null,
+                marginDollar: Number.isFinite(bestDollar) ? bestDollar : null
+            };
+        };
+
+        const buildMessageCandidates = () => {
+            const candidates = state.analysisItems.map((item) => ({
+                item,
+                summary: getBestMarginSummary(item)
+            }));
+            candidates.sort((a, b) => {
+                const aScore = Number.isFinite(a.summary.marginPercent) ? a.summary.marginPercent : -Infinity;
+                const bScore = Number.isFinite(b.summary.marginPercent) ? b.summary.marginPercent : -Infinity;
+                if (Number.isFinite(aScore) || Number.isFinite(bScore)) return bScore - aScore;
+                const aDollar = Number.isFinite(a.summary.marginDollar) ? a.summary.marginDollar : -Infinity;
+                const bDollar = Number.isFinite(b.summary.marginDollar) ? b.summary.marginDollar : -Infinity;
+                return bDollar - aDollar;
+            });
+            state.messageCandidates = candidates;
+            return candidates;
+        };
+
+        const renderMessageCards = () => {
+            if (!elements.messageCards) return;
+            const candidates = state.messageCandidates || [];
+            elements.messageCards.innerHTML = '';
+            if (!candidates.length) {
+                const empty = document.createElement('div');
+                empty.className = 'buylist-message-empty';
+                empty.textContent = 'Run analysis to populate cards with margins.';
+                elements.messageCards.appendChild(empty);
+                if (elements.messageCount) elements.messageCount.textContent = '0 cards';
+                return;
+            }
+
+            const fragment = document.createDocumentFragment();
+            candidates.forEach((entry, index) => {
+            const { item, summary } = entry;
+            const tcgLow = toNumeric(item.metrics.tcgLow);
+            const negotiated = Number.isFinite(tcgLow) ? tcgLow * state.negotiatePercent : null;
+            const row = document.createElement('label');
+            row.className = 'buylist-message-row';
+            row.dataset.cardIndex = index;
+
+            const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.dataset.cardIndex = index;
+                checkbox.checked = index < 10 || candidates.length <= 10;
+
+                const body = document.createElement('div');
+                const title = document.createElement('div');
+                title.className = 'buylist-message-row__title';
+                title.textContent = `${item.card.name} (x${item.card.quantity})`;
+
+                const meta = document.createElement('div');
+                meta.className = 'buylist-message-row__meta';
+                meta.textContent = `${item.card.setCode} • #${item.card.collectorNumber} • ${item.card.foilType}`;
+
+                const pricing = document.createElement('div');
+                pricing.className = 'buylist-message-row__pricing';
+                if (Number.isFinite(negotiated)) {
+                    const marginText = Number.isFinite(summary.marginPercent)
+                        ? formatSignedPercent(summary.marginPercent)
+                        : formatSignedCurrency(summary.marginDollar);
+                    const referenceText = Number.isFinite(tcgLow) ? formatCurrency(tcgLow) : 'N/A';
+                    pricing.textContent = `Offer: ${formatCurrency(negotiated)} (${Math.round(state.negotiatePercent * 100)}% of TCG Low ${referenceText}) • Best margin: ${marginText}`;
+                } else {
+                    pricing.textContent = 'No TCG Low available to compute offer.';
+                }
+
+                body.appendChild(title);
+                body.appendChild(meta);
+                body.appendChild(pricing);
+
+                row.appendChild(checkbox);
+                row.appendChild(body);
+                fragment.appendChild(row);
+            });
+
+            elements.messageCards.appendChild(fragment);
+            if (elements.messageCount) elements.messageCount.textContent = `${candidates.length} card${candidates.length === 1 ? '' : 's'}`;
+        };
+
+        const closeMessageModal = () => {
+            if (!elements.messageModal) return;
+            elements.messageModal.classList.add('hidden');
+            elements.messageModal.setAttribute('aria-hidden', 'true');
+            elements.messageModal.style.display = 'none';
+            if (state.messageEscHandler) {
+                document.removeEventListener('keydown', state.messageEscHandler);
+                state.messageEscHandler = null;
+            }
+            if (state.primaryWasOpenBeforeMessage && modal) {
+                modal.style.display = 'flex';
+                modal.classList.add('open');
+                modal.classList.remove('hidden');
+                modal.setAttribute('aria-hidden', 'false');
+                document.body.classList.add('modal-open');
+            }
+            state.primaryWasOpenBeforeMessage = false;
+        };
+
+        const openMessageModal = () => {
+            if (!elements.messageModal) return;
+            if (!state.analysisItems.length) {
+                updateStatus('Run analysis before generating a message.', true);
+                return;
+            }
+            state.primaryWasOpenBeforeMessage = modal && modal.classList.contains('open');
+            if (state.primaryWasOpenBeforeMessage) {
+                modal.style.display = 'none';
+                modal.classList.add('hidden');
+                modal.setAttribute('aria-hidden', 'true');
+                modal.classList.remove('open');
+            }
+            buildMessageCandidates();
+            renderMessageCards();
+            if (elements.messagePrompt && !elements.messagePrompt.dataset.userEdited) {
+                elements.messagePrompt.value = DEFAULT_MESSAGE_PROMPT;
+            }
+            if (elements.messageSliderValue) {
+                elements.messageSliderValue.textContent = `${Math.round(state.negotiatePercent * 100)}%`;
+            }
+            if (elements.messageSlider) {
+                elements.messageSlider.value = Math.round(state.negotiatePercent * 100);
+            }
+            elements.messageModal.style.display = 'flex';
+            elements.messageModal.classList.add('open');
+            elements.messageModal.classList.remove('hidden');
+            elements.messageModal.setAttribute('aria-hidden', 'false');
+            document.body.classList.add('modal-open');
+            state.messageEscHandler = (event) => {
+                if (event.key === 'Escape') {
+                    closeMessageModal();
+                }
+            };
+            document.addEventListener('keydown', state.messageEscHandler);
+        };
+
+        const collectSelectedMessageCards = () => {
+            if (!elements.messageCards) return [];
+            const selected = [];
+            const checkboxes = elements.messageCards.querySelectorAll('input[type="checkbox"][data-card-index]');
+            checkboxes.forEach((checkbox) => {
+                if (!checkbox.checked) return;
+                const index = Number(checkbox.dataset.cardIndex);
+                if (Number.isNaN(index)) return;
+                const entry = state.messageCandidates[index];
+                if (entry) selected.push(entry);
+            });
+            return selected;
+        };
+
+        const setMessageStatus = (message, isError = false) => {
+            if (!elements.messageStatus) return;
+            elements.messageStatus.textContent = message || '';
+            elements.messageStatus.classList.toggle('active', Boolean(message));
+            elements.messageStatus.classList.toggle('error', isError);
+        };
+
+        const handleGenerateMessage = async () => {
+            if (!elements.messageGenerateBtn) return;
+            const selected = collectSelectedMessageCards();
+            if (!selected.length) {
+                setMessageStatus('Select at least one card to include.', true);
+                return;
+            }
+
+            const promptText = (elements.messagePrompt?.value || DEFAULT_MESSAGE_PROMPT).trim() || DEFAULT_MESSAGE_PROMPT;
+            const payload = {
+                listName: state.getListName(),
+                prompt: promptText,
+                offerPercent: state.negotiatePercent,
+                cards: selected.map(({ item, summary }) => {
+                    const tcgLow = toNumeric(item.metrics.tcgLow);
+                    const negotiated = Number.isFinite(tcgLow) ? tcgLow * state.negotiatePercent : null;
+                    return {
+                        name: item.card.name,
+                        quantity: item.card.quantity,
+                        buylistPrice: negotiated
+                    };
+                })
+            };
+
+            setMessageStatus('Generating with ChatGPT...');
+            elements.messageGenerateBtn.disabled = true;
+            if (elements.generateBtn) elements.generateBtn.disabled = true;
+
+            try {
+                const response = await fetch('/api/buylist/generate-message', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to generate message.');
+                }
+                if (elements.messageOutput) {
+                    elements.messageOutput.value = data.message || '';
+                }
+                setMessageStatus('Message generated. You can tweak or copy it.');
+            } catch (error) {
+                console.error(error);
+                setMessageStatus(error.message || 'Failed to generate message.', true);
+            } finally {
+                elements.messageGenerateBtn.disabled = false;
+                if (elements.generateBtn) elements.generateBtn.disabled = state.isScraping;
+            }
+        };
+
+        const handleCopyMessage = async () => {
+            if (!elements.messageOutput || !elements.messageOutput.value) {
+                setMessageStatus('Nothing to copy yet.', true);
+                return;
+            }
+            try {
+                await navigator.clipboard.writeText(elements.messageOutput.value);
+                setMessageStatus('Copied to clipboard.');
+            } catch (error) {
+                console.error(error);
+                setMessageStatus('Unable to copy automatically.', true);
+            }
+        };
+
         const applySort = () => {
             const sortKey = normalizeSortKey(state.sortKey);
             state.sortKey = sortKey;
@@ -688,6 +969,7 @@
 
             state.isScraping = true;
             if (elements.runBtn) elements.runBtn.disabled = true;
+            if (elements.generateBtn) elements.generateBtn.disabled = true;
             if (elements.progressWrap) elements.progressWrap.classList.remove('hidden');
             if (elements.progressFill) elements.progressFill.style.width = '0%';
             if (elements.progressText) elements.progressText.textContent = `0 / ${cards.length}`;
@@ -734,6 +1016,7 @@
             if (elements.progressWrap) elements.progressWrap.classList.add('hidden');
             state.isScraping = false;
             if (elements.runBtn) elements.runBtn.disabled = false;
+            if (elements.generateBtn) elements.generateBtn.disabled = false;
 
             applySort();
             refreshTargetAndProfit();
@@ -836,6 +1119,7 @@
 
         const close = () => {
             hidePriceTooltip();
+            closeMessageModal();
             modal.classList.add('hidden');
             modal.setAttribute('aria-hidden', 'true');
             modal.style.display = 'none';
@@ -904,6 +1188,46 @@
                 if (elements.runBtn) {
                     elements.runBtn.addEventListener('click', () => {
                         runAnalysis();
+                    });
+                }
+
+                if (elements.generateBtn) {
+                    elements.generateBtn.addEventListener('click', openMessageModal);
+                    elements.generateBtn.disabled = state.isScraping;
+                }
+
+                if (elements.messageCloseBtn) {
+                    elements.messageCloseBtn.addEventListener('click', closeMessageModal);
+                }
+
+                if (elements.messageBackdrop) {
+                    elements.messageBackdrop.addEventListener('click', closeMessageModal);
+                }
+
+                if (elements.messageGenerateBtn) {
+                    elements.messageGenerateBtn.addEventListener('click', handleGenerateMessage);
+                }
+
+                if (elements.messageCopyBtn) {
+                    elements.messageCopyBtn.addEventListener('click', handleCopyMessage);
+                }
+
+                if (elements.messagePrompt) {
+                    elements.messagePrompt.addEventListener('input', () => {
+                        elements.messagePrompt.dataset.userEdited = 'true';
+                    });
+                }
+
+                if (elements.messageSlider) {
+                    elements.messageSlider.addEventListener('input', (event) => {
+                        const percent = Number(event.target.value) / 100;
+                        if (Number.isFinite(percent) && percent > 0) {
+                            state.negotiatePercent = percent;
+                            if (elements.messageSliderValue) {
+                                elements.messageSliderValue.textContent = `${Math.round(percent * 100)}%`;
+                            }
+                            renderMessageCards();
+                        }
                     });
                 }
 

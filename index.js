@@ -12,7 +12,14 @@ import { initializeCardNameCache } from './utils/card-data.js';
 import { startDynDnsUpdater } from './utils/dyn-dns.js';
 import { createSessionAuth } from './utils/session-auth.js';
 import { setWebhookUrl, setManaPoolWebhookUrl } from './discord.js';
-import { initAutomationScheduler } from './utils/automation-runner.js';
+import {
+    initAutomationScheduler,
+    setAutomationEnabled,
+    triggerAutomationRun,
+    getAutomationRuntimeState
+} from './utils/automation-runner.js';
+import { startDiscordBot } from './utils/discord-bot.js';
+import { setInventoryLockState, getInventoryLockState } from './utils/manapool-service.js';
 
 // --- Workaround for __dirname in ES Modules ---
 const __filename = fileURLToPath(import.meta.url);
@@ -218,6 +225,17 @@ const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READWRITE | sqlite3.OPEN_C
                         removeMigratedExpenseEntries();
                         startServerOnce();
                         await initAutomationScheduler(db);
+                        await startDiscordBot({
+                              startAutomation: () => setAutomationEnabled(true, { reason: 'Started from Discord', db }),
+                              stopAutomation: () => setAutomationEnabled(false, { reason: 'Stopped from Discord', db }),
+                              runAutomation: () => triggerAutomationRun(),
+                              lockInventory: () => setInventoryLockState(true, { reason: 'Emergency stop via Discord', actor: 'Discord' }),
+                              unlockInventory: () => setInventoryLockState(false, { actor: 'Discord' }),
+                              fetchStatus: async () => ({
+                                    automation: getAutomationRuntimeState(),
+                                    inventoryLock: getInventoryLockState()
+                              })
+                        });
                   });
             }
       }

@@ -16,6 +16,19 @@ const URLS = {
     AllPricesToday: 'https://mtgjson.com/api/v5/AllPricesToday.json'
 };
 
+const PRESERVED_DB_OBJECTS = [
+    'price_history',
+    'inventory',
+    'transactions',
+    'transaction_items',
+    'inventory_metadata',
+    'imported_lists',
+    'expense_entries',
+    'inventory_snapshots',
+    'manapool_automation_settings',
+    'manapool_automation_baselines'
+];
+
 const getLatestFromHistory = (history) => {
     if (!history || typeof history !== 'object') return null;
     const dates = Object.keys(history);
@@ -206,13 +219,14 @@ async function runDailyUpdate() {
 
         // --- THIS IS THE CRITICAL CHANGE ---
         // This query now explicitly preserves your custom tables.
+        const preservationPlaceholders = PRESERVED_DB_OBJECTS.map(() => '?').join(', ');
         const oldObjectsQuery = `
             SELECT name, type FROM sqlite_master 
             WHERE name NOT LIKE 'sqlite_%' 
-            AND name NOT IN ('price_history', 'inventory', 'transactions', 'imported_lists', 'transaction_items')
+            AND name NOT IN (${preservationPlaceholders})
         `;
         const oldObjects = await new Promise((resolve, reject) => {
-            db.all(oldObjectsQuery, (err, rows) => err ? reject(err) : resolve(rows));
+            db.all(oldObjectsQuery, PRESERVED_DB_OBJECTS, (err, rows) => err ? reject(err) : resolve(rows));
         });
 
         if (oldObjects.length > 0) {

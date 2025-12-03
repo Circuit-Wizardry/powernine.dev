@@ -216,9 +216,11 @@
                         set_name: `${item.setCode?.toUpperCase() || ''} | ${item.condition}`.trim(),
                         collector_number: `Qty: ${item.quantity}`,
                         image_small: item.imageUrl || null,
+                        image_normal: item.imageUrl || null,
                     }));
                 return results;
             },
+            enablePreview: true,
             onSelect: (card) => {
                 const selectedItem = availableInventory.find(inv => inv.id === card.id);
                 if (selectedItem) {

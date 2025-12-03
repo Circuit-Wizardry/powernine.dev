@@ -34,19 +34,29 @@
 
         <section class="fin-kpis" id="kpi-grid">
             <article class="fin-card kpi-card">
-                <p class="label">Revenue</p>
+                <p class="label">Revenue <span class="info-dot" id="kpi-revenue-info" title="">?</span></p>
                 <h2 id="kpi-revenue-value">—</h2>
                 <p class="muted" id="kpi-revenue-meta">-- sales recorded</p>
             </article>
             <article class="fin-card kpi-card">
-                <p class="label">Estimated Fees</p>
-                <h2 id="kpi-fees-value">—</h2>
-                <p class="muted" id="kpi-fees-meta">Platform deductions</p>
+                <p class="label">Gross Profit <span class="info-dot" id="kpi-gross-info" title="">?</span></p>
+                <h2 id="kpi-gross-value">—</h2>
+                <p class="muted" id="kpi-gross-meta">After fees &amp; COGS</p>
             </article>
             <article class="fin-card kpi-card">
-                <p class="label">Cost of Goods</p>
+                <p class="label">Net Profit <span class="info-dot" id="net-info-dot" title="">?</span></p>
+                <h2 id="kpi-net-value">—</h2>
+                <p class="muted" id="kpi-net-meta">After expenses</p>
+            </article>
+            <article class="fin-card kpi-card">
+                <p class="label">Platform Fees</p>
+                <h2 id="kpi-fees-value">—</h2>
+                <p class="muted" id="kpi-fees-meta">Estimated deductions</p>
+            </article>
+            <article class="fin-card kpi-card">
+                <p class="label">Cost of Goods Sold <span class="info-dot" id="kpi-cogs-info" title="">?</span></p>
                 <h2 id="kpi-cogs-value">—</h2>
-                <p class="muted" id="kpi-cogs-meta">Cost basis for sold cards</p>
+                <p class="muted" id="kpi-cogs-meta">Paid basis for sold cards</p>
             </article>
             <article class="fin-card kpi-card">
                 <p class="label">Manual Expenses</p>
@@ -54,14 +64,24 @@
                 <p class="muted" id="kpi-expense-meta">-- entries logged</p>
             </article>
             <article class="fin-card kpi-card">
-                <p class="label">Net Profit <span class="info-dot" id="net-info-dot" title="">?</span></p>
-                <h2 id="kpi-net-value">—</h2>
-                <p class="muted" id="kpi-net-meta">After fees &amp; expenses</p>
+                <p class="label">Inventory — Market</p>
+                <h2 id="kpi-inventory-market-value">—</h2>
+                <p class="muted" id="kpi-inventory-market-meta">Live pricing value</p>
             </article>
             <article class="fin-card kpi-card">
-                <p class="label">Inventory Value</p>
-                <h2 id="kpi-inventory-value">—</h2>
-                <p class="muted" id="kpi-inventory-meta">— cards tracked</p>
+                <p class="label">Inventory — Cost Basis</p>
+                <h2 id="kpi-inventory-cost-value">—</h2>
+                <p class="muted" id="kpi-inventory-cost-meta">What you paid</p>
+            </article>
+            <article class="fin-card kpi-card">
+                <p class="label">Unrealized P/L</p>
+                <h2 id="kpi-unrealized-value">—</h2>
+                <p class="muted" id="kpi-unrealized-meta">Market minus cost basis</p>
+            </article>
+            <article class="fin-card kpi-card">
+                <p class="label">Pending Shipments</p>
+                <h2 id="kpi-pending-value">—</h2>
+                <p class="muted" id="kpi-pending-meta">ManaPool orders to ship</p>
             </article>
         </section>
 

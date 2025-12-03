@@ -820,6 +820,10 @@ textarea::placeholder {
     gap: 6px;
 }
 
+.buylist-snapshot-status.error {
+    color: var(--danger-color);
+}
+
 .buylist-snapshot-status::before {
     content: '';
     width: 8px;
@@ -848,6 +852,133 @@ textarea::placeholder {
 .buylist-modal .target-column span {
     font-weight: 600;
     color: var(--primary-color);
+}
+
+.buylist-message-dialog {
+    max-width: 1280px;
+    min-width: 960px;
+}
+
+.buylist-message-layout {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 16px;
+    align-items: start;
+}
+
+.buylist-message-slider {
+    margin: 8px 0 12px;
+}
+
+.buylist-message-slider .slider-wrap {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 10px;
+}
+
+.buylist-message-slider input[type="range"] {
+    width: 100%;
+}
+
+.buylist-message-list,
+.buylist-message-compose {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 14px;
+}
+
+.buylist-message-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.pill {
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.18);
+    color: var(--text-color);
+    font-size: 0.85rem;
+    border: 1px solid var(--border-color);
+}
+
+.buylist-message-cards {
+    max-height: 480px;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-right: 4px;
+}
+
+.buylist-message-row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 12px;
+    background: linear-gradient(145deg, rgba(124, 58, 237, 0.08), rgba(34, 211, 238, 0.05));
+}
+
+.buylist-message-row input[type="checkbox"] {
+    margin-top: 6px;
+    width: 18px;
+    height: 18px;
+}
+
+.buylist-message-row__title {
+    font-weight: 600;
+}
+
+.buylist-message-row__meta {
+    color: var(--muted-color);
+    font-size: 0.9rem;
+}
+
+.buylist-message-row__pricing {
+    color: var(--muted-strong);
+    font-size: 0.9rem;
+}
+
+.buylist-message-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 10px 0;
+}
+
+.buylist-message-compose textarea {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 10px;
+    resize: vertical;
+    font-family: var(--font-family-base);
+}
+
+.buylist-message-compose textarea[readonly] {
+    opacity: 0.9;
+}
+
+.buylist-message-compose .field-label {
+    display: block;
+    margin: 8px 0 6px;
+    color: var(--muted-color);
+    font-weight: 600;
+}
+
+.buylist-message-empty {
+    padding: 16px;
+    text-align: center;
+    color: var(--muted-color);
+    border: 1px dashed var(--border-color);
+    border-radius: 12px;
 }
 
 @media (max-width: 768px) {
@@ -887,6 +1018,18 @@ textarea::placeholder {
     .buylist-modal .item-image {
         width: 120px;
         align-self: center;
+    }
+
+    .buylist-message-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .buylist-message-dialog {
+        min-width: auto;
+    }
+
+    .buylist-message-cards {
+        max-height: 320px;
     }
 }
 

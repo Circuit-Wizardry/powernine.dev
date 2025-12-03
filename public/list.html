@@ -85,6 +85,7 @@
             </header>
             <div class="buylist-modal-controls">
                 <button id="buylist-run-btn" class="primary-btn" type="button">Run Analysis</button>
+                <button id="buylist-generate-message-btn" class="view-button secondary-button" type="button">Generate Message</button>
                 <div id="buylist-progress" class="buylist-progress hidden" aria-live="polite">
                     <div class="buylist-progress-bar-container">
                         <div class="buylist-progress-fill" id="buylist-progress-bar"></div>
@@ -115,6 +116,46 @@
             <footer class="buylist-modal-footer">
                 <span id="buylist-snapshot-status" class="buylist-snapshot-status"></span>
             </footer>
+        </div>
+    </div>
+
+    <div id="buylist-message-modal" class="buylist-modal hidden" aria-hidden="true">
+        <div class="buylist-modal-backdrop" data-dismiss="buylist-message-modal"></div>
+        <div class="buylist-modal-dialog buylist-message-dialog" role="dialog" aria-modal="true" aria-labelledby="buylist-message-title">
+            <header class="buylist-modal-header">
+                <div>
+                    <h2 id="buylist-message-title">Generate Buyer Message</h2>
+                    <p class="buylist-modal-subtitle">Pick high-margin cards and draft a note.</p>
+                </div>
+                <button id="buylist-message-close-btn" class="modal-close-btn" type="button" aria-label="Close message builder">&times;</button>
+            </header>
+            <div class="buylist-message-layout">
+                <section class="buylist-message-list">
+                    <div class="buylist-message-list-header">
+                        <h3>Cards to include</h3>
+                        <span id="buylist-message-count" class="pill"></span>
+                    </div>
+                    <div class="buylist-message-slider">
+                        <label for="buylist-message-slider">Offer % of TCG Low (no shipping)</label>
+                        <div class="slider-wrap">
+                            <input type="range" id="buylist-message-slider" min="50" max="110" step="1" value="90">
+                            <span id="buylist-message-slider-value">90%</span>
+                        </div>
+                    </div>
+                    <div id="buylist-message-cards" class="buylist-message-cards"></div>
+                </section>
+                <section class="buylist-message-compose">
+                    <label for="buylist-message-prompt" class="field-label">Prompt for ChatGPT</label>
+                    <textarea id="buylist-message-prompt" rows="4" placeholder="Explain the tone and structure you want for the outreach."></textarea>
+                    <div class="buylist-message-actions">
+                        <button id="buylist-message-generate-btn" class="primary-btn" type="button">Generate text</button>
+                        <button id="buylist-message-copy-btn" class="secondary-button view-button" type="button">Copy</button>
+                        <span id="buylist-message-status" class="buylist-snapshot-status"></span>
+                    </div>
+                    <label for="buylist-message-output" class="field-label">Generated message</label>
+                    <textarea id="buylist-message-output" rows="10" readonly placeholder="Run generation to see the draft."></textarea>
+                </section>
+            </div>
         </div>
     </div>
 

@@ -1,5 +1,9 @@
 const revenueValueEl = document.getElementById('kpi-revenue-value');
 const revenueMetaEl = document.getElementById('kpi-revenue-meta');
+const revenueInfoDot = document.getElementById('kpi-revenue-info');
+const grossValueEl = document.getElementById('kpi-gross-value');
+const grossMetaEl = document.getElementById('kpi-gross-meta');
+const grossInfoDot = document.getElementById('kpi-gross-info');
 const expenseValueEl = document.getElementById('kpi-expense-value');
 const expenseMetaEl = document.getElementById('kpi-expense-meta');
 const netValueEl = document.getElementById('kpi-net-value');
@@ -9,8 +13,15 @@ const feesValueEl = document.getElementById('kpi-fees-value');
 const feesMetaEl = document.getElementById('kpi-fees-meta');
 const cogsValueEl = document.getElementById('kpi-cogs-value');
 const cogsMetaEl = document.getElementById('kpi-cogs-meta');
-const inventoryValueEl = document.getElementById('kpi-inventory-value');
-const inventoryMetaEl = document.getElementById('kpi-inventory-meta');
+const cogsInfoDot = document.getElementById('kpi-cogs-info');
+const inventoryMarketValueEl = document.getElementById('kpi-inventory-market-value');
+const inventoryMarketMetaEl = document.getElementById('kpi-inventory-market-meta');
+const inventoryCostValueEl = document.getElementById('kpi-inventory-cost-value');
+const inventoryCostMetaEl = document.getElementById('kpi-inventory-cost-meta');
+const unrealizedValueEl = document.getElementById('kpi-unrealized-value');
+const unrealizedMetaEl = document.getElementById('kpi-unrealized-meta');
+const pendingValueEl = document.getElementById('kpi-pending-value');
+const pendingMetaEl = document.getElementById('kpi-pending-meta');
 const snapshotListEl = document.getElementById('snapshot-list');
 const categoryListEl = document.getElementById('category-list');
 const recentExpenseListEl = document.getElementById('recent-expense-list');
@@ -107,25 +118,63 @@ const buildNetTooltip = (summary) => {
     if (!summary) return '';
     const rows = [
         `Revenue: ${formatCurrency(summary.revenue || 0)}`,
-        `Estimated fees: ${formatCurrency(summary.estimatedFees || 0)}`,
-        `Cost of goods: ${formatCurrency(summary.costOfGoodsSold || 0)}`,
+        `Platform fees: ${formatCurrency(summary.estimatedFees || 0)}`,
+        `Cost of goods sold: ${formatCurrency(summary.costOfGoodsSold || 0)}`,
         `Manual expenses: ${formatCurrency(summary.expenses || 0)}`,
     ];
     return rows.join('\n');
 };
 
 const updateKpis = (summary) => {
-    revenueValueEl.textContent = formatCurrency(summary?.revenue || 0);
-    revenueMetaEl.textContent = `${summary?.salesCount || 0} sales recorded`;
-    feesValueEl.textContent = formatCurrency(summary?.estimatedFees || 0);
-    cogsValueEl.textContent = formatCurrency(summary?.costOfGoodsSold || 0);
-    expenseValueEl.textContent = formatCurrency(summary?.expenses || 0);
-    expenseMetaEl.textContent = `${summary?.expenseCount || 0} entries logged`;
-    netValueEl.textContent = formatCurrency(summary?.netProfit || 0);
-    netMetaEl.textContent = 'After fees & expenses';
+    const revenue = Number(summary?.revenue) || 0;
+    const salesCount = summary?.salesCount || 0;
+    const fees = Number(summary?.estimatedFees) || 0;
+    const shipping = Number(summary?.shippingEstimate) || 0;
+    const cogs = Number(summary?.costOfGoodsSold) || 0;
+    const manualExpenses = Number(summary?.expenses) || 0;
+    const netProfit = Number(summary?.netProfit) || 0;
+    const inventoryMarket = Number(summary?.inventoryValue) || 0;
+    const inventoryCost = Number(summary?.inventoryCostBasis) || 0;
+    const unrealized = inventoryMarket - inventoryCost;
+    const pendingOrders = Number(summary?.pendingOrders) || 0;
+    const grossProfit = revenue - fees - cogs;
+
+    revenueValueEl.textContent = formatCurrency(revenue);
+    revenueMetaEl.textContent = `${salesCount} sales recorded`;
+    if (revenueInfoDot) revenueInfoDot.title = 'Total sales before fees, costs, or expenses.';
+
+    grossValueEl.textContent = formatCurrency(grossProfit);
+    grossMetaEl.textContent = `After platform fees and COGS (${formatCurrency(cogs)})`;
+    if (grossInfoDot) grossInfoDot.title = `Revenue (${formatCurrency(revenue)}) - platform fees (${formatCurrency(fees)}) - COGS (${formatCurrency(cogs)}).`;
+
+    netValueEl.textContent = formatCurrency(netProfit);
+    netMetaEl.textContent = 'After fees, COGS, and manual expenses';
     netInfoDot.title = buildNetTooltip(summary);
-    inventoryValueEl.textContent = formatCurrency(summary?.inventoryValue || 0);
-    inventoryMetaEl.textContent = `${summary?.inventoryUnits || 0} cards tracked`;
+
+    feesValueEl.textContent = formatCurrency(fees);
+    feesMetaEl.textContent = 'Estimated platform deductions';
+
+    cogsValueEl.textContent = formatCurrency(cogs);
+    cogsMetaEl.textContent = 'Paid cost basis of items sold';
+    if (cogsInfoDot) cogsInfoDot.title = 'Sum of price paid for sold cards (includes Secret Lair cost basis).';
+
+    expenseValueEl.textContent = formatCurrency(manualExpenses);
+    expenseMetaEl.textContent = `${summary?.expenseCount || 0} entries logged`;
+
+    inventoryMarketValueEl.textContent = formatCurrency(inventoryMarket);
+    inventoryMarketMetaEl.textContent = `${summary?.inventoryUnits || 0} cards at market`;
+
+    inventoryCostValueEl.textContent = formatCurrency(inventoryCost);
+    inventoryCostMetaEl.textContent = 'Paid cost of inventory on hand';
+
+    const unrealizedClass = unrealized >= 0 ? 'profit' : 'loss';
+    unrealizedValueEl.textContent = formatCurrency(unrealized);
+    unrealizedValueEl.classList.remove('profit', 'loss');
+    unrealizedValueEl.classList.add(unrealizedClass);
+    unrealizedMetaEl.textContent = `${unrealized >= 0 ? 'Gain' : 'Loss'} if sold at market`;
+
+    pendingValueEl.textContent = pendingOrders.toString();
+    pendingMetaEl.textContent = 'ManaPool orders awaiting shipment';
 };
 
 const renderSnapshots = (snapshots = []) => {
@@ -587,23 +636,7 @@ const createInventoryEntryForPurchase = async (item) => {
 };
 
 const logCardPurchaseEntry = async (item, { paymentMethod = null, purchaseDate } = {}) => {
-    const inventoryId = await createInventoryEntryForPurchase(item);
-    const amount = Number((item.perUnitCost * item.quantity).toFixed(2));
-    const incurredOn = purchaseDate || new Date().toISOString().slice(0, 10);
-    const payload = {
-        description: `${item.name} (${item.setCode || ''} #${item.collectorNumber || ''}) x${item.quantity}`,
-        amount,
-        category: 'Card Purchase',
-        paymentMethod,
-        incurredOn,
-        notes: buildCardPurchaseNotes(item),
-        linkedInventoryId: inventoryId,
-    };
-    await fetchJson('/api/finances/expenses', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-    });
+    await createInventoryEntryForPurchase(item);
 };
 const createDiscretePurchaseFlow = () => {
     const elements = {
@@ -639,6 +672,17 @@ const createDiscretePurchaseFlow = () => {
         elements.printingDropdown?.removeAttribute('hidden');
     };
 
+    const clearSearchUi = () => {
+        state.printings = [];
+        state.printingLoading = false;
+        state.printingError = null;
+        hidePrintingDropdown();
+        state.searchWidget?.hideDropdown?.();
+        if (elements.searchInput) {
+            elements.searchInput.value = '';
+        }
+    };
+
     const renderPrintingPicker = () => {
         if (!elements.printingDropdown) return;
         if (state.printingLoading) {
@@ -658,11 +702,17 @@ const createDiscretePurchaseFlow = () => {
         const options = state.printings.map((printing) => {
             const finishes = printing.finishes && printing.finishes.length ? printing.finishes : ['normal'];
             const finishLabel = finishes.map((finish) => FINISH_LABELS[finish] || finish).join(', ');
+            const thumb = printing.image
+                ? `<img src="${escapeHtml(printing.image)}" alt="${escapeHtml(printing.name)}" class="printing-option__thumb">`
+                : '<div class="printing-option__thumb printing-option__thumb--placeholder">?</div>';
             return `
                 <button type="button" class="printing-option" data-printing-id="${printing.id}">
-                    <div class="printing-option__info">
-                        <strong>${escapeHtml(printing.name)}</strong>
-                        <span class="printing-option__meta">${escapeHtml(printing.setCode || '')} #${escapeHtml(printing.collectorNumber || '')}</span>
+                    <div class="printing-option__body">
+                        <div class="printing-option__thumb-wrap">${thumb}</div>
+                        <div class="printing-option__info">
+                            <strong>${escapeHtml(printing.name)}</strong>
+                            <span class="printing-option__meta">${escapeHtml(printing.setCode || '')} #${escapeHtml(printing.collectorNumber || '')}</span>
+                        </div>
                     </div>
                     <span class="printing-option__finish">${escapeHtml(finishLabel)}</span>
                 </button>
@@ -721,6 +771,7 @@ const createDiscretePurchaseFlow = () => {
         if (elements.paymentMethodInput) elements.paymentMethodInput.value = '';
         if (elements.dateInput) elements.dateInput.value = '';
         if (elements.searchInput) elements.searchInput.value = '';
+        state.searchWidget?.hideDropdown?.();
         renderQueue();
         hidePrintingDropdown();
     };
@@ -752,6 +803,7 @@ const createDiscretePurchaseFlow = () => {
             minLength: 2,
             limit: 12,
             showSetInfo: true,
+            enablePreview: true,
             onSelect: (card) => {
                 if (card?.name) {
                     elements.searchInput.value = card.name;
@@ -768,6 +820,15 @@ const createDiscretePurchaseFlow = () => {
             if (!event.target.value.trim()) {
                 state.printings = [];
                 hidePrintingDropdown();
+            }
+        });
+        elements.searchInput?.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const query = event.target.value.trim();
+                if (query) {
+                    loadPrintings(query);
+                }
             }
         });
     };
@@ -814,6 +875,7 @@ const createDiscretePurchaseFlow = () => {
             perUnitCost: null,
         });
         hidePrintingDropdown();
+        clearSearchUi();
     };
 
     const handleDropdownOutsideClick = (event) => {
@@ -912,11 +974,6 @@ const createDiscretePurchaseFlow = () => {
     elements.queueBody?.addEventListener('input', handleQueueInput);
     elements.queueBody?.addEventListener('click', handleQueueClick);
     elements.saveBtn?.addEventListener('click', save);
-    elements.modal?.addEventListener('click', (event) => {
-        if (event.target === elements.modal) {
-            close();
-        }
-    });
     elements.closeButtons.forEach((btn) => btn.addEventListener('click', close));
 
     return { open, close };
@@ -957,6 +1014,17 @@ const createSplitPurchaseFlow = () => {
         elements.printingDropdown?.removeAttribute('hidden');
     };
 
+    const clearSearchUi = () => {
+        state.printings = [];
+        state.printingLoading = false;
+        state.printingError = null;
+        hidePrintingDropdown();
+        state.searchWidget?.hideDropdown?.();
+        if (elements.searchInput) {
+            elements.searchInput.value = '';
+        }
+    };
+
     const renderPrintingPicker = () => {
         if (!elements.printingDropdown) return;
         if (state.printingLoading) {
@@ -976,11 +1044,17 @@ const createSplitPurchaseFlow = () => {
         const options = state.printings.map((printing) => {
             const finishes = printing.finishes && printing.finishes.length ? printing.finishes : ['normal'];
             const finishLabel = finishes.map((finish) => FINISH_LABELS[finish] || finish).join(', ');
+            const thumb = printing.image
+                ? `<img src="${escapeHtml(printing.image)}" alt="${escapeHtml(printing.name)}" class="printing-option__thumb">`
+                : '<div class="printing-option__thumb printing-option__thumb--placeholder">?</div>';
             return `
                 <button type="button" class="printing-option" data-printing-id="${printing.id}">
-                    <div class="printing-option__info">
-                        <strong>${escapeHtml(printing.name)}</strong>
-                        <span class="printing-option__meta">${escapeHtml(printing.setCode || '')} #${escapeHtml(printing.collectorNumber || '')}</span>
+                    <div class="printing-option__body">
+                        <div class="printing-option__thumb-wrap">${thumb}</div>
+                        <div class="printing-option__info">
+                            <strong>${escapeHtml(printing.name)}</strong>
+                            <span class="printing-option__meta">${escapeHtml(printing.setCode || '')} #${escapeHtml(printing.collectorNumber || '')}</span>
+                        </div>
                     </div>
                     <span class="printing-option__finish">${escapeHtml(finishLabel)}</span>
                 </button>
@@ -989,6 +1063,7 @@ const createSplitPurchaseFlow = () => {
         elements.printingDropdown.innerHTML = options;
         showPrintingDropdown();
     };
+
     const renderQueue = () => {
         if (!elements.queueBody) return;
         if (elements.queueCount) {
@@ -1002,13 +1077,20 @@ const createSplitPurchaseFlow = () => {
         elements.queueBody.innerHTML = state.items.map((item) => {
             const finishOptions = buildFinishOptions(item.finishes || ['normal'], item.finish);
             const conditionOptions = buildConditionOptions(item.condition || 'NM');
-            const referenceLabel = item.loading
-                ? 'Loading…'
-                : Number.isFinite(item.tcgLow)
-                    ? formatCurrency(item.tcgLow)
-                    : '—';
+            const referenceLabel = item.scraping
+                ? 'Scraping...'
+                : item.loading
+                    ? 'Loading...'
+                    : Number.isFinite(item.tcgLow)
+                        ? formatCurrency(item.tcgLow)
+                        : '--';
             const perUnitValue = Number.isFinite(item.perUnitCost) ? item.perUnitCost.toFixed(2) : '';
             const totalLabel = Number.isFinite(item.totalCost) ? formatCurrency(item.totalCost) : '-';
+            const referenceMeta = item.scrapeError ? `<span class="reference-meta">${escapeHtml(item.scrapeError)}</span>` : '';
+            const scrapeDisabled = item.scraping || item.loading;
+            const scrapeAction = item.tcgplayerId
+                ? `<button type="button" class="scrape-btn" data-action="scrape" data-id="${item.id}" ${scrapeDisabled ? 'disabled' : ''}>Scrape TCG Low</button>`
+                : '<span class="reference-meta muted">Missing TCGplayer ID</span>';
             return `
                 <tr data-id="${item.id}">
                     <td>
@@ -1024,7 +1106,13 @@ const createSplitPurchaseFlow = () => {
                     <td data-label="Qty">
                         <input type="number" class="qty-input" min="1" value="${item.quantity}">
                     </td>
-                    <td data-label="TCG Low"><span class="reference-value">${referenceLabel}</span></td>
+                    <td data-label="TCG Low">
+                        <div class="reference-cell">
+                            <span class="reference-value">${referenceLabel}</span>
+                            ${referenceMeta}
+                            ${scrapeAction}
+                        </div>
+                    </td>
                     <td data-label="Allocated">
                         <input type="number" class="per-unit-input" min="0" step="0.01" value="${perUnitValue}">
                     </td>
@@ -1045,6 +1133,7 @@ const createSplitPurchaseFlow = () => {
         if (elements.totalInput) elements.totalInput.value = '';
         if (elements.paymentMethodInput) elements.paymentMethodInput.value = '';
         if (elements.searchInput) elements.searchInput.value = '';
+        state.searchWidget?.hideDropdown?.();
         renderQueue();
         hidePrintingDropdown();
     };
@@ -1076,6 +1165,7 @@ const createSplitPurchaseFlow = () => {
             minLength: 2,
             limit: 12,
             showSetInfo: true,
+            enablePreview: true,
             onSelect: (card) => {
                 if (card?.name) {
                     elements.searchInput.value = card.name;
@@ -1094,6 +1184,15 @@ const createSplitPurchaseFlow = () => {
                 hidePrintingDropdown();
             }
         });
+        elements.searchInput?.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                const query = event.target.value.trim();
+                if (query) {
+                    loadPrintings(query);
+                }
+            }
+        });
     };
 
     const addItem = (payload) => {
@@ -1105,6 +1204,8 @@ const createSplitPurchaseFlow = () => {
             perUnitCost: null,
             totalCost: null,
             loading: true,
+            scraping: false,
+            scrapeError: null,
         };
         state.items.push(item);
         renderQueue();
@@ -1113,13 +1214,19 @@ const createSplitPurchaseFlow = () => {
     };
 
     const loadPriceForItem = async (item) => {
-        if (!item?.scryfallId) return;
+        if (!item?.scryfallId) {
+            item.loading = false;
+            renderQueue();
+            return;
+        }
         item.loading = true;
+        item.scrapeError = null;
         renderQueue();
         try {
             const data = await fetchJson(`/api/cards/price-basis?scryfallId=${encodeURIComponent(item.scryfallId)}&finish=${encodeURIComponent(item.finish)}`);
-            if (Number.isFinite(data?.tcgLow) && data.tcgLow > 0) {
-                item.tcgLow = Number(data.tcgLow);
+            const basis = Number(data?.tcgLow);
+            if (Number.isFinite(basis) && basis > 0) {
+                item.tcgLow = basis;
             } else {
                 item.tcgLow = null;
             }
@@ -1127,6 +1234,49 @@ const createSplitPurchaseFlow = () => {
             console.warn('[splitPurchase] price lookup failed:', error.message);
             item.tcgLow = null;
         } finally {
+            item.loading = false;
+            renderQueue();
+        }
+    };
+
+    const scrapeLowForItem = async (item) => {
+        if (!item) return;
+        if (!item.tcgplayerId) {
+            showToast('Cannot scrape TCG low without a TCGplayer ID.', 'error');
+            return;
+        }
+        item.scraping = true;
+        item.scrapeError = null;
+        renderQueue();
+        const payload = {
+            tcgplayerId: item.tcgplayerId,
+            cardName: item.name,
+            setCode: item.setCode,
+            collectorNumber: item.collectorNumber,
+            foilType: finishToFoilType(item.finish),
+            condition: item.condition || 'NM',
+            store: 'tcgplayer',
+        };
+        try {
+            const result = await fetchJson('/api/scrape-lows', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const scraped = Number(result?.tcgLow);
+            if (Number.isFinite(scraped) && scraped > 0) {
+                item.tcgLow = scraped;
+                showToast('TCG low scraped.', 'success');
+            } else {
+                item.tcgLow = null;
+                item.scrapeError = 'No TCG low found.';
+                showToast('No TCG low found for this card.', 'info');
+            }
+        } catch (error) {
+            item.scrapeError = error.message || 'Failed to scrape TCG low.';
+            showToast(item.scrapeError, 'error');
+        } finally {
+            item.scraping = false;
             item.loading = false;
             renderQueue();
         }
@@ -1150,6 +1300,7 @@ const createSplitPurchaseFlow = () => {
             quantity: 1,
         });
         hidePrintingDropdown();
+        clearSearchUi();
     };
 
     const handleDropdownOutsideClick = (event) => {
@@ -1191,10 +1342,19 @@ const createSplitPurchaseFlow = () => {
     };
 
     const handleQueueClick = (event) => {
-        const button = event.target.closest('[data-action="remove"]');
+        const button = event.target.closest('[data-action]');
         if (!button) return;
-        state.items = state.items.filter((entry) => entry.id !== button.dataset.id);
-        renderQueue();
+        const { action, id } = button.dataset;
+        const item = state.items.find((entry) => entry.id === id);
+        if (!item) return;
+        if (action === 'remove') {
+            state.items = state.items.filter((entry) => entry.id !== id);
+            renderQueue();
+            return;
+        }
+        if (action === 'scrape') {
+            scrapeLowForItem(item);
+        }
     };
 
     const allocateByTcgLow = () => {
@@ -1290,11 +1450,6 @@ const createSplitPurchaseFlow = () => {
     elements.queueBody?.addEventListener('click', handleQueueClick);
     elements.allocateBtn?.addEventListener('click', allocateByTcgLow);
     elements.saveBtn?.addEventListener('click', save);
-    elements.modal?.addEventListener('click', (event) => {
-        if (event.target === elements.modal) {
-            close();
-        }
-    });
     elements.closeButtons.forEach((btn) => btn.addEventListener('click', close));
 
     return { open, close };

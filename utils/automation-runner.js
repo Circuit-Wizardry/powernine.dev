@@ -5,9 +5,12 @@ import {
     getLocalInventoryRows,
     fetchVariantFloorsForInventory,
     getAutomationBaselines,
-    snapshotAutomationBaselines
+    snapshotAutomationBaselines,
+    syncOrdersBeforePricing,
+    getInventoryLockState
 } from './manapool-service.js';
 import { sendAutomationLifecycleWebhook } from './automation-alerts.js';
+import { publishAutomationRunSummary, updateAutomationBotState } from './discord-bot.js';
 
 const MINUTE_MS = 60 * 1000;
 const MIN_INTERVAL_MINUTES = 5;
@@ -26,6 +29,23 @@ let currentSettings = null;
 let isAutomationRunning = false;
 let pendingSettings = null;
 let hasPrimedBaselinesThisSession = false;
+
+const broadcastAutomationStatus = () => {
+    try {
+        const lock = getInventoryLockState ? getInventoryLockState() : {};
+        updateAutomationBotState({
+            automationEnabled: Boolean(currentSettings?.enabled),
+            automationRunning: Boolean(isAutomationRunning),
+            lastRunAt: currentSettings?.lastRunAt || null,
+            nextRunAt: currentSettings?.nextRunAt || null,
+            inventoryLocked: Boolean(lock?.locked),
+            inventoryLockReason: lock?.reason || '',
+            inventoryLockActor: lock?.actor || ''
+        });
+    } catch {
+        // If the bot is not configured, fail silently.
+    }
+};
 
 const minutesToMs = (value) => {
     const minutes = Number(value);
@@ -52,12 +72,14 @@ const scheduleNextRun = (immediate = false) => {
     clearAutomationTimer();
     if (!automationDb || !currentSettings?.enabled) {
         updateNextRunTimestamp(null);
+        broadcastAutomationStatus();
         return;
     }
     const delay = immediate ? IMMEDIATE_DELAY_MS : minutesToMs(currentSettings.intervalMinutes);
     const nextRunAt = new Date(Date.now() + delay).toISOString();
     currentSettings.nextRunAt = nextRunAt;
     updateNextRunTimestamp(nextRunAt);
+    broadcastAutomationStatus();
     automationTimer = setTimeout(runAutomationCycle, delay);
 };
 
@@ -80,21 +102,42 @@ const runAutomationCycle = async () => {
         return;
     }
     isAutomationRunning = true;
+    broadcastAutomationStatus();
     try {
-        const startedAt = new Date().toISOString();
+        const startedAtMs = Date.now();
+        const startedAt = new Date(startedAtMs).toISOString();
         currentSettings.lastRunAt = startedAt;
         await saveAutomationSettings({ lastRunAt: startedAt }, automationDb);
+        try {
+            const syncResult = await syncOrdersBeforePricing(automationDb);
+            if (syncResult?.imported) {
+                console.log(`[automation] Imported ${syncResult.imported} ManaPool orders before pricing.`);
+            }
+            if (syncResult?.shipmentUpdates) {
+                console.log(`[automation] Updated shipment status for ${syncResult.shipmentUpdates} orders.`);
+            }
+        } catch (syncError) {
+            console.warn('[automation] Unable to synchronize ManaPool orders before pricing:', syncError.message || syncError);
+        }
         const automationPayload = await buildAutomationPayload(currentSettings);
-        await pushInventoryToManaPool(automationDb, {
+        const result = await pushInventoryToManaPool(automationDb, {
             priceOffsetCents: 1,
             deleteMissing: false,
             notifyAutomation: true,
             automation: automationPayload
         });
+        if (result?.automationSummary) {
+            publishAutomationRunSummary({
+                ...result.automationSummary,
+                runAt: startedAt,
+                durationMs: Date.now() - startedAtMs
+            }).catch(() => {});
+        }
     } catch (error) {
         console.error('[automation] ManaPool automation run failed:', error);
     } finally {
         isAutomationRunning = false;
+        broadcastAutomationStatus();
         scheduleNextRun(false);
     }
 };
@@ -102,6 +145,13 @@ const runAutomationCycle = async () => {
 const applySettings = (settings) => {
     currentSettings = settings ? { ...settings } : null;
 };
+
+export const getAutomationRuntimeState = () => ({
+    enabled: Boolean(currentSettings?.enabled),
+    isRunning: Boolean(isAutomationRunning),
+    lastRunAt: currentSettings?.lastRunAt || null,
+    nextRunAt: currentSettings?.nextRunAt || null
+});
 
 export async function initAutomationScheduler(db) {
     automationDb = db;
@@ -112,6 +162,7 @@ export async function initAutomationScheduler(db) {
         applySettings(settings);
         await primeAutomationFloorCache('pending-settings');
         scheduleNextRun(immediate);
+        broadcastAutomationStatus();
         return;
     }
     try {
@@ -129,6 +180,7 @@ export async function initAutomationScheduler(db) {
             hasPrimedBaselinesThisSession = false;
         }
         scheduleNextRun(false);
+        broadcastAutomationStatus();
     } catch (error) {
         console.error('[automation] Unable to initialize scheduler:', error);
     }
@@ -286,3 +338,47 @@ export const buildAutomationPayload = async (settings = {}) => {
         };
     }
 };
+
+export async function applyAutomationSettingsUpdate(update = {}, options = {}) {
+    const db = options.db || automationDb;
+    if (!db) {
+        throw new Error('Automation database not ready.');
+    }
+    const previous = await getAutomationSettings(db);
+    const previousEnabled = Boolean(previous?.enabled);
+    const effectivePayload = { ...update };
+    const requestedEnabled = Boolean(effectivePayload.enabled);
+    if (previousEnabled && requestedEnabled) {
+        effectivePayload.enabled = false;
+    }
+    const settings = await saveAutomationSettings(effectivePayload, db);
+    let baselineCount = null;
+    if (!previousEnabled && settings.enabled) {
+        baselineCount = await snapshotAutomationBaselines(db);
+    }
+    updateAutomationScheduler(settings, { immediate: !previousEnabled && settings.enabled });
+    broadcastAutomationStatus();
+    if (!previousEnabled && settings.enabled) {
+        await sendAutomationLifecycleWebhook('enabled', settings, { baselineCount });
+    } else if (previousEnabled && !settings.enabled) {
+        await sendAutomationLifecycleWebhook('disabled', settings, { reason: options.reason });
+    } else if (previousEnabled && settings.enabled === false) {
+        await sendAutomationLifecycleWebhook('disabled', settings, {
+            reason: options.reason || 'Server restart in progress or automation reset requested.'
+        });
+    }
+    return { settings, previous, baselineCount };
+}
+
+export async function setAutomationEnabled(enabled, options = {}) {
+    const result = await applyAutomationSettingsUpdate({ enabled }, options);
+    return result.settings;
+}
+
+export async function triggerAutomationRun() {
+    if (!automationDb) throw new Error('Automation scheduler not ready.');
+    if (!currentSettings?.enabled) throw new Error('Automation is disabled.');
+    if (isAutomationRunning) throw new Error('Automation already running.');
+    await runAutomationCycle();
+    return getAutomationRuntimeState();
+}

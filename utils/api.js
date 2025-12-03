@@ -8,7 +8,6 @@ import { getCardNames } from './card-data.js';
 import axios from 'axios';
 import { randomUUID } from 'crypto';
 import { log } from '../discord.js';
-import { sendAutomationLifecycleWebhook } from './automation-alerts.js';
 import { chromium } from 'playwright'; // Import Playwright
 // Import your scraper functions (ensure paths are correct)
 import { scrapeTcgplayerData } from '../scrapers/tcgplayer.js';
@@ -26,12 +25,10 @@ import {
     forceImportOrder,
     cleanupRemoteInventory,
     getAutomationSettings,
-    saveAutomationSettings,
-    snapshotAutomationBaselines,
     getLocalInventoryRows,
     simulateAutomationForItems
 } from './manapool-service.js';
-import { updateAutomationScheduler, buildAutomationPayload } from './automation-runner.js';
+import { buildAutomationPayload, applyAutomationSettingsUpdate } from './automation-runner.js';
 import {
     recordShippingExpense,
     SHIPPING_EXPENSE_CATEGORIES,
@@ -40,6 +37,8 @@ import {
 } from './expense-helpers.js';
 
 const FIXED_SHIPPING_EXPENSE = 0; // Default packaging cost when none supplied
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash-latest';
+const BUYLIST_MESSAGE_SYSTEM_PROMPT = ""
 
 const normalizeManaPoolSlug = (cardName = '') => {
     return cardName
@@ -206,6 +205,18 @@ export default function(db, options = {}) {
         };
     };
 
+    const getSecretLairCostBasis = () => new Promise((resolve, reject) => {
+        const sql = `
+            SELECT IFNULL(SUM(amount), 0) AS total
+            FROM expense_entries
+            WHERE LOWER(category) LIKE 'secret lair%'
+        `;
+        db.get(sql, [], (err, row) => {
+            if (err) return reject(err);
+            resolve(Number(row?.total || 0));
+        });
+    });
+
     const captureInventorySnapshot = async (notes = null) => {
         const valuation = await getInventoryValuation();
         const snapshotId = randomUUID();
@@ -314,7 +325,8 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
             categoryRows,
             snapshotRows,
             recentExpenses,
-            costOfGoodsSold
+            costOfGoodsSold,
+            secretLairCostBasis
         ] = await Promise.all([
             dbAllAsync(`
                 SELECT totalSalePrice, netProfit, packagingCost, platform
@@ -326,11 +338,16 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
                     IFNULL(SUM(amount), 0) AS expenses,
                     COUNT(*) AS expenseCount
                 FROM expense_entries
+                WHERE NOT (
+                    LOWER(category) LIKE 'secret lair%'
+                    OR LOWER(category) = 'card purchase'
+                )
             `),
             dbGet(`
                 SELECT COUNT(*) AS pending
                 FROM transactions
                 WHERE platform = 'ManaPool' AND COALESCE(isShipped, 1) = 0
+                  AND EXISTS (SELECT 1 FROM transaction_items ti WHERE ti.transactionId = transactions.id)
             `),
             getInventoryValuation(),
             dbAllAsync(`
@@ -339,6 +356,10 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
                     COUNT(*) AS count,
                     SUM(amount) AS total
                 FROM expense_entries
+                WHERE NOT (
+                    LOWER(category) LIKE 'secret lair%'
+                    OR LOWER(category) = 'card purchase'
+                )
                 GROUP BY category
                 ORDER BY total DESC
             `),
@@ -351,10 +372,15 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
             dbAllAsync(`
                 SELECT id, description, amount, category, paymentMethod, incurredOn, notes
                 FROM expense_entries
+                WHERE NOT (
+                    LOWER(category) LIKE 'secret lair%'
+                    OR LOWER(category) = 'card purchase'
+                )
                 ORDER BY datetime(incurredOn) DESC
                 LIMIT 5
             `),
-            getSoldCostBasis()
+            getSoldCostBasis(),
+            getSecretLairCostBasis()
         ]);
 
         const revenue = salesRows.reduce((sum, row) => sum + Number(row.totalSalePrice || 0), 0);
@@ -365,7 +391,8 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
         const salesCount = salesRows.length;
         const expenses = Number(expenseRow?.expenses || 0);
         const expenseCount = Number(expenseRow?.expenseCount || 0);
-        const salesNetBeforeExpenses = revenue - estimatedFees - costOfGoodsSold;
+        const totalCogs = costOfGoodsSold + secretLairCostBasis;
+        const salesNetBeforeExpenses = revenue - estimatedFees - totalCogs;
         const netProfit = salesNetBeforeExpenses - expenses;
         const pendingOrders = Number(unshippedRow?.pending || 0);
 
@@ -382,7 +409,7 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
             estimatedFees,
             shippingEstimate,
             salesNetProfit: salesNetBeforeExpenses,
-            costOfGoodsSold,
+            costOfGoodsSold: totalCogs,
             expenseCategories: categoryRows.map(row => ({
                 category: row.category,
                 total: Number(row.total || 0),
@@ -480,6 +507,89 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
         }
     });
 
+
+    router.post('/buylist/generate-message', express.json(), async (req, res) => {
+        const apiKey = process.env.GOOGLE_API_KEY;
+        if (!apiKey) {
+            return res.status(500).json({ error: 'Google API key is not configured on the server.' });
+        }
+
+        const { cards, prompt } = req.body || {};
+        if (!Array.isArray(cards) || !cards.length) {
+            return res.status(400).json({ error: 'No cards supplied for message generation.' });
+        }
+
+        const instructions = typeof prompt === 'string' && prompt.trim().length > 0
+            ? prompt.trim()
+            : 'Draft a concise, friendly outreach asking if the seller will accept these offers. Keep it professional and avoid extra fluff. Do NOT include asterisks or markdown formatting. Keep it 1-2 sentences. Confirm the total offer amount at the end.';
+
+        const normalizedCards = cards.slice(0, 50).map((card) => ({
+            name: String(card.name || '').trim(),
+            quantity: Number(card.quantity) || 0,
+            buylistPrice: Number(card.buylistPrice) || null
+        })).filter((card) => card.name && Number.isFinite(card.buylistPrice));
+
+        if (!normalizedCards.length) {
+            return res.status(400).json({ error: 'No valid cards were supplied.' });
+        }
+
+        const cardLines = normalizedCards.map((card, index) => {
+            const priceText = Number.isFinite(card.buylistPrice) ? `$${card.buylistPrice.toFixed(2)}` : 'N/A';
+            const qty = card.quantity > 0 ? `x${card.quantity}` : 'x1';
+            return `${index + 1}. ${card.name} (${qty}) - Offer per copy: ${priceText}`;
+        }).join('\n');
+
+        const total = normalizedCards.reduce((sum, card) => {
+            const qty = card.quantity > 0 ? card.quantity : 1;
+            const price = Number.isFinite(card.buylistPrice) ? card.buylistPrice : 0;
+            return sum + qty * price;
+        }, 0);
+        const totalRounded = Math.floor(total * 2) / 2; // round down to nearest $0.50
+
+        const userPrompt = [
+            instructions,
+            '',
+            'Cards:',
+            cardLines,
+            '',
+            `Total offer (all copies): $${totalRounded.toFixed(2)} (rounded down to nearest $0.50)`
+        ].join('\n');
+
+        try {
+            const response = await axios.post(
+                `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+                {
+                    contents: [
+                        {
+                            parts: [
+                                { text: BUYLIST_MESSAGE_SYSTEM_PROMPT },
+                                { text: userPrompt }
+                            ]
+                        }
+                    ],
+                    safetySettings: [
+                        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+                        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+                        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+                        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+                        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
+                    ]
+                },
+                {
+                    params: { key: apiKey }
+                }
+            );
+
+            const text = response.data?.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '';
+            res.json({ message: text.trim() });
+        } catch (error) {
+            const apiErrorMessage = error?.response?.data?.error?.message;
+            console.error('[buylist/generate-message] Gemini error:', error?.response?.data || error.message);
+            res.status(500).json({
+                error: apiErrorMessage || 'Failed to generate message with Gemini.'
+            });
+        }
+    });
 
 
     router.post('/scrape-lows', express.json(), async (req, res) => {
@@ -677,29 +787,8 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
 
     router.post('/manapool/prices/automation', express.json(), async (req, res) => {
         try {
-            const previous = await getAutomationSettings(db);
-            const previousEnabled = Boolean(previous?.enabled);
-            const effectivePayload = { ...req.body };
-            const requestedEnabled = Boolean(effectivePayload.enabled);
-            if (previousEnabled && requestedEnabled) {
-                effectivePayload.enabled = false;
-            }
-            const settings = await saveAutomationSettings(effectivePayload, db);
-            let baselineCount = null;
-            if (!previousEnabled && settings.enabled) {
-                baselineCount = await snapshotAutomationBaselines(db);
-            }
-            updateAutomationScheduler(settings);
-            if (!previousEnabled && settings.enabled) {
-                await sendAutomationLifecycleWebhook('enabled', settings, { baselineCount });
-            } else if (previousEnabled && !settings.enabled) {
-                await sendAutomationLifecycleWebhook('disabled', settings);
-            } else if (previousEnabled && settings.enabled === false) {
-                await sendAutomationLifecycleWebhook('disabled', settings, {
-                    reason: 'Server restart in progress or automation reset requested.'
-                });
-            }
-            res.json({ settings });
+            const result = await applyAutomationSettingsUpdate(req.body || {}, { db, reason: req.body?.reason });
+            res.json({ settings: result.settings });
         } catch (error) {
             console.error('[manapool] automation save error:', error);
             res.status(500).json({ error: error.message || 'Failed to save automation settings.' });
@@ -818,6 +907,7 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
                     WHERE ti.transactionId = t.id
                 ), '[]') as items
             FROM transactions t
+            WHERE EXISTS (SELECT 1 FROM transaction_items ti WHERE ti.transactionId = t.id)
             ORDER BY t.soldAt DESC
         `;
         db.all(sql, [], (err, rows) => {
@@ -844,7 +934,9 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
         const sql = `
             SELECT id, soldAt, manapoolOrderId
             FROM transactions
-            WHERE platform = 'ManaPool' AND COALESCE(isShipped, 1) = 0
+            WHERE platform = 'ManaPool' 
+              AND COALESCE(isShipped, 1) = 0
+              AND EXISTS (SELECT 1 FROM transaction_items ti WHERE ti.transactionId = transactions.id)
             ORDER BY soldAt DESC
         `;
         db.all(sql, [], (err, rows) => {
@@ -872,6 +964,10 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
             const rows = await dbAllAsync(`
                 SELECT id, description, amount, category, paymentMethod, incurredOn, createdAt, linkedInventoryId, notes
                 FROM expense_entries
+                WHERE NOT (
+                    LOWER(category) LIKE 'secret lair%'
+                    OR LOWER(category) = 'card purchase'
+                )
                 ORDER BY datetime(incurredOn) DESC, datetime(createdAt) DESC
                 LIMIT ?
             `, [limit]);
@@ -1183,35 +1279,50 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
         const { id } = req.params;
         db.serialize(() => {
             db.run("BEGIN TRANSACTION");
-            db.all("SELECT inventoryId, quantity, packingSlipPath FROM transactions t JOIN transaction_items ti ON t.id = ti.transactionId WHERE t.id = ?", [id], (err, items) => {
-                if (err) { db.run("ROLLBACK"); return res.status(500).json({ error: err.message }); }
-                if (items.length === 0) { db.run("ROLLBACK"); return res.status(404).json({ message: "Transaction not found." }); }
-                
-                const invSql = `UPDATE inventory SET quantity = quantity + ? WHERE id = ?`;
-                const invStmt = db.prepare(invSql);
-                for (const item of items) {
-                    invStmt.run(item.quantity, item.inventoryId);
-                }
-                invStmt.finalize();
 
-                db.run("DELETE FROM transaction_items WHERE transactionId = ?", [id]);
-                db.run("DELETE FROM transactions WHERE id = ?", [id]);
+            db.get("SELECT id, packingSlipPath FROM transactions WHERE id = ?", [id], (txnErr, txnRow) => {
+                if (txnErr) { db.run("ROLLBACK"); return res.status(500).json({ error: txnErr.message }); }
+                if (!txnRow) { db.run("ROLLBACK"); return res.status(404).json({ message: "Transaction not found." }); }
 
-                const slipPath = items[0].packingSlipPath;
-                if (slipPath) {
-                    const resolvedSlip = path.resolve(slipPath);
-                    if (resolvedSlip.startsWith(uploadRoot)) {
-                        fs.unlink(resolvedSlip, (unlinkErr) => {
-                            if (unlinkErr) console.error("Failed to delete packing slip file:", unlinkErr);
-                        });
-                    } else {
-                        console.warn('[transactions] Skipped deleting packing slip outside upload directory:', resolvedSlip);
+                db.all("SELECT inventoryId, quantity FROM transaction_items WHERE transactionId = ?", [id], (itemsErr, items) => {
+                    if (itemsErr) { db.run("ROLLBACK"); return res.status(500).json({ error: itemsErr.message }); }
+
+                    if (items.length) {
+                        const invSql = `UPDATE inventory SET quantity = quantity + ? WHERE id = ?`;
+                        const invStmt = db.prepare(invSql);
+                        for (const item of items) {
+                            invStmt.run(item.quantity, item.inventoryId);
+                        }
+                        invStmt.finalize();
                     }
-                }
 
-                db.run("COMMIT", (commitErr) => {
-                    if (commitErr) { db.run("ROLLBACK"); return res.status(500).json({ error: commitErr.message }); }
-                    res.status(200).json({ message: "Transaction deleted and inventory restored." });
+                    db.run("DELETE FROM transaction_items WHERE transactionId = ?", [id], (delItemsErr) => {
+                        if (delItemsErr) { db.run("ROLLBACK"); return res.status(500).json({ error: delItemsErr.message }); }
+
+                        db.run("DELETE FROM transactions WHERE id = ?", [id], (delTxnErr) => {
+                            if (delTxnErr) { db.run("ROLLBACK"); return res.status(500).json({ error: delTxnErr.message }); }
+
+                            const slipPath = txnRow.packingSlipPath;
+                            if (slipPath) {
+                                const resolvedSlip = path.resolve(slipPath);
+                                if (resolvedSlip.startsWith(uploadRoot)) {
+                                    fs.unlink(resolvedSlip, (unlinkErr) => {
+                                        if (unlinkErr) console.error("Failed to delete packing slip file:", unlinkErr);
+                                    });
+                                } else {
+                                    console.warn('[transactions] Skipped deleting packing slip outside upload directory:', resolvedSlip);
+                                }
+                            }
+
+                            db.run("COMMIT", (commitErr) => {
+                                if (commitErr) {
+                                    db.run("ROLLBACK");
+                                    return res.status(500).json({ error: commitErr.message });
+                                }
+                                res.status(200).json({ message: "Transaction deleted and inventory restored." });
+                            });
+                        });
+                    });
                 });
             });
         });
@@ -1705,6 +1816,7 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
                     ? card.card_faces[0]
                     : null;
                 const imageSmall = card.image_uris?.small || primaryFace?.image_uris?.small || null;
+                const imageNormal = card.image_uris?.normal || primaryFace?.image_uris?.normal || null;
 
                 return {
                     id: card.id,
@@ -1713,6 +1825,7 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
                     set_name: card.set_name,
                     collector_number: card.collector_number,
                     image_small: imageSmall,
+                    image_normal: imageNormal,
                     finishes: card.finishes || [],
                     tcgplayer_id: card.tcgplayer_id || null,
                 };
@@ -1872,4 +1985,3 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
     
     return router;
 }
-

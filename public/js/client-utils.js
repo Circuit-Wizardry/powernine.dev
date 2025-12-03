@@ -85,10 +85,13 @@
             this.debounceMs = Number.isFinite(options.debounceMs) ? options.debounceMs : 200;
             this.fetchCards = typeof options.fetchCards === 'function' ? options.fetchCards : defaultCardSearchFetcher;
             this.showSetInfo = options.showSetInfo === true;
+            this.enablePreview = options.enablePreview === true;
             this.results = [];
             this.activeIndex = -1;
             this.abortController = null;
             this.debounceTimer = null;
+            this.previewEl = null;
+            this.previewImg = null;
 
             this.dropdown = document.createElement('div');
             this.dropdown.className = 'card-search-dropdown hidden';
@@ -100,6 +103,14 @@
             this.dropdown.appendChild(this.listEl);
 
             document.body.appendChild(this.dropdown);
+            if (this.enablePreview) {
+                this.previewEl = document.createElement('div');
+                this.previewEl.className = 'card-search__preview hidden';
+                this.previewImg = document.createElement('img');
+                this.previewImg.alt = '';
+                this.previewEl.appendChild(this.previewImg);
+                document.body.appendChild(this.previewEl);
+            }
 
             this.handleInput = this.handleInput.bind(this);
             this.handleFocus = this.handleFocus.bind(this);
@@ -131,6 +142,11 @@
                 this.abortController.abort();
             }
             this.dropdown.remove();
+            if (this.previewEl) {
+                this.previewEl.remove();
+                this.previewEl = null;
+                this.previewImg = null;
+            }
         }
 
         handleInput() {
@@ -220,10 +236,35 @@
             this.statusEl.textContent = message;
         }
 
+        showPreview(card, anchorEl) {
+            if (!this.enablePreview || !this.previewEl || !this.previewImg) return;
+            const src = card.image_normal || card.image_small;
+            if (!src) {
+                this.hidePreview();
+                return;
+            }
+            const rect = anchorEl?.getBoundingClientRect();
+            if (rect) {
+                this.previewEl.style.top = `${Math.max(8, rect.top + global.scrollY)}px`;
+                this.previewEl.style.left = `${rect.right + 12 + global.scrollX}px`;
+            }
+            this.previewImg.src = src;
+            this.previewImg.alt = card.name || 'Card preview';
+            this.previewEl.classList.remove('hidden');
+        }
+
+        hidePreview() {
+            if (!this.previewEl) return;
+            this.previewEl.classList.add('hidden');
+        }
+
         renderResults() {
             this.statusEl.textContent = '';
             this.listEl.innerHTML = '';
             this.activeIndex = this.results.length > 0 ? 0 : -1;
+            if (this.enablePreview) {
+                this.hidePreview();
+            }
 
             this.results.forEach((card, index) => {
                 const item = document.createElement('button');
@@ -231,9 +272,10 @@
                 item.className = 'card-search__item';
                 item.dataset.index = String(index);
 
-                if (card.image_small) {
+                const thumbSrc = card.image_small || card.image_normal;
+                if (thumbSrc) {
                     const img = document.createElement('img');
-                    img.src = card.image_small;
+                    img.src = thumbSrc;
                     img.alt = card.name;
                     img.className = 'card-search__thumb';
                     item.appendChild(img);
@@ -275,6 +317,10 @@
                     event.preventDefault();
                     this.selectResult(card);
                 });
+                if (this.enablePreview) {
+                    item.addEventListener('mouseenter', () => this.showPreview(card, item));
+                    item.addEventListener('mouseleave', () => this.hidePreview());
+                }
 
                 this.listEl.appendChild(item);
             });
@@ -315,6 +361,9 @@
             this.dropdown.classList.add('hidden');
             this.listEl.innerHTML = '';
             this.statusEl.textContent = '';
+            if (this.enablePreview) {
+                this.hidePreview();
+            }
         }
     }
 

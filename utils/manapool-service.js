@@ -7,6 +7,7 @@ import {
     MANAPOOL_AUTO_SHIPPING_THRESHOLD,
 } from './expense-helpers.js';
 import { sendManaPoolWebhook } from '../discord.js';
+import { logDiscordEvent, updateAutomationBotState } from './discord-bot.js';
 
 const API_BASE = process.env.MANAPOOL_API_BASE || 'https://manapool.com/api/v1';
 const API_KEY = process.env.MANAPOOL_API_KEY || '';
@@ -24,6 +25,34 @@ const remoteInventoryCache = {
     timestamp: 0,
     snapshot: null
 };
+
+const inventoryLockState = {
+    locked: false,
+    reason: '',
+    actor: '',
+    lockedAt: null
+};
+
+export function getInventoryLockState() {
+    return { ...inventoryLockState };
+}
+
+export function setInventoryLockState(locked, options = {}) {
+    const nowLocked = Boolean(locked);
+    inventoryLockState.locked = nowLocked;
+    inventoryLockState.reason = nowLocked ? (options.reason || '') : '';
+    inventoryLockState.actor = nowLocked ? (options.actor || '') : '';
+    inventoryLockState.lockedAt = nowLocked ? new Date().toISOString() : null;
+    updateAutomationBotState({
+        inventoryLocked: inventoryLockState.locked,
+        inventoryLockReason: inventoryLockState.reason,
+        inventoryLockActor: inventoryLockState.actor
+    });
+    const action = nowLocked ? 'locked' : 'unlocked';
+    const reason = inventoryLockState.reason ? `: ${inventoryLockState.reason}` : '';
+    logDiscordEvent(`[inventory] Inventory sync ${action}${reason}`).catch(() => {});
+    return getInventoryLockState();
+}
 
 const manapoolClient = axios.create({
     baseURL: API_BASE,
@@ -597,10 +626,12 @@ const pushInventoryRows = async (items = [], options = {}) => {
         ? (item) => !automationOptions.exclusionMatcher(item)
         : null;
     const { payload, contexts, missing } = await buildPushPayload(items, { filterCandidate });
+    const lockState = getInventoryLockState();
     let automationCardsUpdated = 0;
     let automationValueDeltaCents = 0;
     const automationDropAlerts = [];
     const automationPriceDrops = [];
+    let sortedDrops = [];
 
     const getBaselineForContext = (context) => {
         if (!automationOptions?.baselineMap || !context?.inventory?.id) return null;
@@ -624,6 +655,27 @@ const pushInventoryRows = async (items = [], options = {}) => {
             message: 'MANAPOOL_API_KEY missing. Performed dry run only.',
             preview: payload.slice(0, 25),
             missing
+        };
+    }
+
+    if (!simulateOnly && lockState.locked) {
+        const lockMessage = `Inventory sync locked${lockState.reason ? `: ${lockState.reason}` : ''}`;
+        return {
+            updated: 0,
+            deleted: 0,
+            message: lockMessage,
+            preview: [],
+            missing,
+            automationSummary: automationOptions ? {
+                blocked: true,
+                reason: lockState.reason || 'Inventory locked',
+                cardsUpdated: 0,
+                valueDeltaCents: 0,
+                priceDrops: [],
+                alerts: [],
+                runAt: new Date().toISOString(),
+                message: lockMessage
+            } : null
         };
     }
 
@@ -733,7 +785,7 @@ const pushInventoryRows = async (items = [], options = {}) => {
                 pair.context.__automationReason = 'No competitor price data';
                 return null;
             }
-            const effectiveCompetitorPrice = variant.priceCents + 1;
+            const effectiveCompetitorPrice = variant.priceCents;
             if (effectiveCompetitorPrice >= ourPrice) {
                 pair.context.__automationReason = 'Competitor price not lower than ours';
                 return null;
@@ -1034,7 +1086,7 @@ const pushInventoryRows = async (items = [], options = {}) => {
             content: automationMessage,
             embeds: []
         };
-        const sortedDrops = automationPriceDrops
+        sortedDrops = automationPriceDrops
             .filter(entry => Number.isFinite(entry.delta) && entry.delta > 0)
             .sort((a, b) => b.delta - a.delta)
             .slice(0, 25);
@@ -1053,13 +1105,23 @@ const pushInventoryRows = async (items = [], options = {}) => {
         await sendManaPoolWebhook(webhookPayload);
     }
 
+    const automationSummary = automationOptions ? {
+        cardsUpdated: automationCardsUpdated,
+        valueDeltaCents: automationValueDeltaCents,
+        priceDrops: sortedDrops,
+        alerts: automationDropAlerts,
+        message: messages.join(' '),
+        runAt: new Date().toISOString()
+    } : null;
+
     if (simulateOnly) {
         return {
             updated: 0,
             deleted: 0,
             message: 'Simulation complete.',
             preview: previewEntries,
-            missing
+            missing,
+            automationSummary
         };
     }
 
@@ -1068,7 +1130,8 @@ const pushInventoryRows = async (items = [], options = {}) => {
         deleted: deleteMissing ? deletedCount : 0,
         message: messages.join(' '),
         preview: previewEntries,
-        missing
+        missing,
+        automationSummary
     };
 };
 
@@ -1601,6 +1664,30 @@ export async function importOrdersToTransactions(db, orders = []) {
     return { imported, skipped, errors, unmatchedOrders, shipmentUpdates };
 }
 
+export async function syncOrdersBeforePricing(db, options = {}) {
+    if (!db) {
+        throw new Error('Database handle is required for order synchronization.');
+    }
+    try {
+        const since = options.since || null;
+        const payload = await pullOrdersFromManaPool({ since });
+        const orders = payload?.orders || [];
+        const importResult = await importOrdersToTransactions(db, orders);
+        return {
+            source: payload?.source || 'unknown',
+            pulledAt: payload?.pulledAt || new Date().toISOString(),
+            imported: importResult.imported || 0,
+            skipped: importResult.skipped || [],
+            errors: importResult.errors || [],
+            unmatchedOrders: importResult.unmatchedOrders || [],
+            shipmentUpdates: importResult.shipmentUpdates || 0
+        };
+    } catch (error) {
+        console.error('[automation] Failed to sync ManaPool orders before pricing:', error);
+        throw error;
+    }
+}
+
 export async function forceImportOrder(db, orderId) {
     if (!orderId) {
         throw new Error('orderId is required.');
@@ -1802,7 +1889,6 @@ const parseStoredAutomationList = (value) => {
 };
 
 const ensureAutomationSettingsTable = (db) => new Promise((resolve, reject) => {
-    if (ensureAutomationSettingsTable.ready) return resolve();
     db.run(`
         CREATE TABLE IF NOT EXISTS ${AUTOMATION_SETTINGS_TABLE} (
             id TEXT PRIMARY KEY,
@@ -1822,14 +1908,11 @@ const ensureAutomationSettingsTable = (db) => new Promise((resolve, reject) => {
         )
     `, (err) => {
         if (err) return reject(err);
-        ensureAutomationSettingsTable.ready = true;
         resolve();
     });
 });
-ensureAutomationSettingsTable.ready = false;
 
 const ensureAutomationBaselineTable = (db) => new Promise((resolve, reject) => {
-    if (ensureAutomationBaselineTable.ready) return resolve();
     db.run(`
         CREATE TABLE IF NOT EXISTS ${AUTOMATION_BASELINE_TABLE} (
             inventoryId TEXT PRIMARY KEY,
@@ -1839,11 +1922,9 @@ const ensureAutomationBaselineTable = (db) => new Promise((resolve, reject) => {
         )
     `, (err) => {
         if (err) return reject(err);
-        ensureAutomationBaselineTable.ready = true;
         resolve();
     });
 });
-ensureAutomationBaselineTable.ready = false;
 
 const replaceAutomationBaselines = (db, baselines = []) => new Promise((resolve, reject) => {
     db.serialize(() => {
