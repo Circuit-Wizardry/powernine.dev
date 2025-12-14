@@ -16,10 +16,12 @@ import {
     initAutomationScheduler,
     setAutomationEnabled,
     triggerAutomationRun,
-    getAutomationRuntimeState
+    getAutomationRuntimeState,
+    applyAutomationSettingsUpdate
 } from './utils/automation-runner.js';
-import { startDiscordBot } from './utils/discord-bot.js';
+import { startDiscordBot, logDiscordConsole } from './utils/discord-bot.js';
 import { setInventoryLockState, getInventoryLockState } from './utils/manapool-service.js';
+import { startBuylistReporter, refreshInventoryBuylistSnapshot } from './utils/buylist-reporter.js';
 
 // --- Workaround for __dirname in ES Modules ---
 const __filename = fileURLToPath(import.meta.url);
@@ -52,6 +54,17 @@ if (!APP_USER || !APP_PASSWORD) {
 if (APP_USER === 'admin' && APP_PASSWORD === 'password') {
       throw new Error('Default credentials detected. Update APP_USER and APP_PASSWORD before starting the server.');
 }
+
+process.on('uncaughtException', (error) => {
+      console.error('[server] Uncaught exception:', error);
+      logDiscordConsole(`[server] Uncaught exception: ${error?.message || error}`).catch(() => {});
+});
+
+process.on('unhandledRejection', (reason) => {
+      console.error('[server] Unhandled rejection:', reason);
+      const message = reason && reason.message ? reason.message : String(reason);
+      logDiscordConsole(`[server] Unhandled rejection: ${message}`).catch(() => {});
+});
 
 // --- CORE MIDDLEWARE ---
 // 1. Enable CORS for all requests. This handles the OPTIONS preflight.
@@ -217,7 +230,7 @@ const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READWRITE | sqlite3.OPEN_C
                               });
                         }
                         try {
-                              await ensureManaPoolIndex(db);
+                        await ensureManaPoolIndex(db);
                         } catch (indexErr) {
                               console.error('[db] Failed ensuring ManaPool index:', indexErr.message);
                         }
@@ -225,12 +238,24 @@ const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READWRITE | sqlite3.OPEN_C
                         removeMigratedExpenseEntries();
                         startServerOnce();
                         await initAutomationScheduler(db);
+                        startBuylistReporter(db, {
+                              beforeBuild: async () => {
+                                    console.log('[buylist] Pre-refresh hook: refreshing inventory snapshot...');
+                                    try {
+                                          await refreshInventoryBuylistSnapshot(db);
+                                          console.log('[buylist] Inventory snapshot refreshed.');
+                                    } catch (error) {
+                                          console.warn('[buylist] Snapshot refresh failed:', error.message || error);
+                                    }
+                              }
+                        });
                         await startDiscordBot({
                               startAutomation: () => setAutomationEnabled(true, { reason: 'Started from Discord', db }),
                               stopAutomation: () => setAutomationEnabled(false, { reason: 'Stopped from Discord', db }),
                               runAutomation: () => triggerAutomationRun(),
                               lockInventory: () => setInventoryLockState(true, { reason: 'Emergency stop via Discord', actor: 'Discord' }),
                               unlockInventory: () => setInventoryLockState(false, { actor: 'Discord' }),
+                              applySetting: (update) => applyAutomationSettingsUpdate(update, { db, reason: 'Updated via Discord slash command' }),
                               fetchStatus: async () => ({
                                     automation: getAutomationRuntimeState(),
                                     inventoryLock: getInventoryLockState()

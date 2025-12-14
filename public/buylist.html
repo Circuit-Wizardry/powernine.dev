@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Buylist Analysis</title>
+    <title>Buylist Opportunities</title>
     <link rel="icon" href="/media/favicon.png" type="image/png">
     <link rel="stylesheet" href="/theme.css">
     <link rel="stylesheet" href="/buylist.css">
@@ -12,21 +12,28 @@
 <body>
     <div class="container">
         <header>
-            <h1>Buylist Analysis</h1>
+            <h1>Buylist Opportunities</h1>
             <div class="controls">
-                <button id="scrape-all-btn">Scrape All Inventory</button>
-                <div id="progress-container" class="progress-container hidden">
-                    <div id="progress-bar" class="progress-bar"></div>
-                    <span id="progress-text">Scraping 0 / 0</span>
-                </div>
+                <button id="buylist-refresh-btn" class="primary-btn">Refresh now</button>
+                <span class="muted">Last updated: <span id="buylist-updated">--</span></span>
             </div>
         </header>
 
-        <main id="analysis-container">
-            <!-- Inventory items will be dynamically inserted here -->
+        <section id="buylist-summary" class="summary">Loading...</section>
+        <main id="buylist-list" class="buylist-table">
+            <div class="table-header">
+                <span>Card</span>
+                <span>TCG Low+Ship</span>
+                <span>CK Buylist</span>
+                <span>SCG Buylist</span>
+                <span>Spread</span>
+            </div>
+            <div class="table-body" id="buylist-table-body">
+                <p class="empty">Loading buylist report...</p>
+            </div>
         </main>
     </div>
 
-    <script src="buylist.js"></script>
+    <script src="/buylist-report.js"></script>
 </body>
 </html>

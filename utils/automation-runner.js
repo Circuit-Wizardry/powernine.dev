@@ -10,7 +10,7 @@ import {
     getInventoryLockState
 } from './manapool-service.js';
 import { sendAutomationLifecycleWebhook } from './automation-alerts.js';
-import { publishAutomationRunSummary, updateAutomationBotState } from './discord-bot.js';
+import { publishAutomationRunSummary, updateAutomationBotState, logDiscordEvent, logDiscordConsole } from './discord-bot.js';
 
 const MINUTE_MS = 60 * 1000;
 const MIN_INTERVAL_MINUTES = 5;
@@ -33,6 +33,12 @@ let hasPrimedBaselinesThisSession = false;
 const broadcastAutomationStatus = () => {
     try {
         const lock = getInventoryLockState ? getInventoryLockState() : {};
+        const exclusionsCount = Array.isArray(currentSettings?.exclusions)
+            ? currentSettings.exclusions.length
+            : (typeof currentSettings?.exclusions === 'string' && currentSettings.exclusions.trim() ? currentSettings.exclusions.split(/\r?\n/).filter(Boolean).length : 0);
+        const overridesCount = Array.isArray(currentSettings?.floorOverrides)
+            ? currentSettings.floorOverrides.length
+            : (typeof currentSettings?.floorOverrides === 'string' && currentSettings.floorOverrides.trim() ? currentSettings.floorOverrides.split(/\r?\n/).filter(Boolean).length : 0);
         updateAutomationBotState({
             automationEnabled: Boolean(currentSettings?.enabled),
             automationRunning: Boolean(isAutomationRunning),
@@ -40,7 +46,14 @@ const broadcastAutomationStatus = () => {
             nextRunAt: currentSettings?.nextRunAt || null,
             inventoryLocked: Boolean(lock?.locked),
             inventoryLockReason: lock?.reason || '',
-            inventoryLockActor: lock?.actor || ''
+            inventoryLockActor: lock?.actor || '',
+            strategy: currentSettings?.strategy || '',
+            intervalMinutes: currentSettings?.intervalMinutes ?? null,
+            floorType: currentSettings?.floorType || '',
+            floorValue: currentSettings?.floorValue ?? null,
+            dropThresholdPercent: currentSettings?.dropThresholdPercent ?? null,
+            exclusionsCount,
+            overridesCount
         });
     } catch {
         // If the bot is not configured, fail silently.
@@ -119,7 +132,7 @@ const runAutomationCycle = async () => {
         } catch (syncError) {
             console.warn('[automation] Unable to synchronize ManaPool orders before pricing:', syncError.message || syncError);
         }
-        const automationPayload = await buildAutomationPayload(currentSettings);
+        const automationPayload = await buildAutomationPayload(currentSettings, { concurrency: 5 });
         const result = await pushInventoryToManaPool(automationDb, {
             priceOffsetCents: 1,
             deleteMissing: false,
@@ -135,6 +148,7 @@ const runAutomationCycle = async () => {
         }
     } catch (error) {
         console.error('[automation] ManaPool automation run failed:', error);
+        logDiscordConsole(`[automation] Run failed: ${error?.message || error}`).catch(() => {});
     } finally {
         isAutomationRunning = false;
         broadcastAutomationStatus();
@@ -150,7 +164,18 @@ export const getAutomationRuntimeState = () => ({
     enabled: Boolean(currentSettings?.enabled),
     isRunning: Boolean(isAutomationRunning),
     lastRunAt: currentSettings?.lastRunAt || null,
-    nextRunAt: currentSettings?.nextRunAt || null
+    nextRunAt: currentSettings?.nextRunAt || null,
+    strategy: currentSettings?.strategy || '',
+    intervalMinutes: currentSettings?.intervalMinutes ?? null,
+    floorType: currentSettings?.floorType || '',
+    floorValue: currentSettings?.floorValue ?? null,
+    dropThresholdPercent: currentSettings?.dropThresholdPercent ?? null,
+    exclusionsCount: Array.isArray(currentSettings?.exclusions)
+        ? currentSettings.exclusions.length
+        : (typeof currentSettings?.exclusions === 'string' && currentSettings.exclusions.trim() ? currentSettings.exclusions.split(/\r?\n/).filter(Boolean).length : 0),
+    overridesCount: Array.isArray(currentSettings?.floorOverrides)
+        ? currentSettings.floorOverrides.length
+        : (typeof currentSettings?.floorOverrides === 'string' && currentSettings.floorOverrides.trim() ? currentSettings.floorOverrides.split(/\r?\n/).filter(Boolean).length : 0)
 });
 
 export async function initAutomationScheduler(db) {
@@ -168,6 +193,7 @@ export async function initAutomationScheduler(db) {
     try {
         let settings = await getAutomationSettings(automationDb);
         if (settings?.enabled) {
+            logDiscordEvent('[automation] Server restarted while auto-pricer was enabled. It has been paused until you re-enable it.').catch(() => {});
             settings = await saveAutomationSettings({ enabled: false, nextRunAt: null }, automationDb);
             await sendAutomationLifecycleWebhook('disabled', settings, {
                 reason: 'Server restarted; automation paused until you re-enable it.'
@@ -183,6 +209,7 @@ export async function initAutomationScheduler(db) {
         broadcastAutomationStatus();
     } catch (error) {
         console.error('[automation] Unable to initialize scheduler:', error);
+        logDiscordConsole(`[automation] Scheduler init failed: ${error?.message || error}`).catch(() => {});
     }
 }
 
@@ -295,8 +322,9 @@ const buildExclusionMatcher = (entries = []) => {
     };
 };
 
-export const buildAutomationPayload = async (settings = {}) => {
+export const buildAutomationPayload = async (settings = {}, options = {}) => {
     if (!automationDb) return null;
+    const concurrency = options?.concurrency;
     const floorOverrideEntries = coerceStringList(settings.floorOverrides);
     const exclusionEntries = coerceStringList(settings.exclusions);
     try {
@@ -305,7 +333,7 @@ export const buildAutomationPayload = async (settings = {}) => {
             getAutomationBaselines(automationDb)
         ]);
         const activeRows = inventoryRows.filter(row => Number(row.quantity) > 0);
-        const variantPriceMap = await fetchVariantFloorsForInventory(activeRows);
+        const variantPriceMap = await fetchVariantFloorsForInventory(activeRows, { concurrency });
         return {
             strategy: normalizeStrategy(settings.strategy),
             variantPriceMap,

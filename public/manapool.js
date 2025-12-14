@@ -262,7 +262,7 @@ const loadAutomationDebugData = async () => {
     automationDebugStatusEl.textContent = 'Calculating live floors...';
     automationDebugTableBody.innerHTML = '<tr><td colspan="5" class="empty">Loading live floor data...</td></tr>';
     try {
-        const response = await fetch('/api/manapool/prices/automation/debug');
+        const response = await fetch('/api/manapool/prices/automation/debug?concurrency=5');
         if (!response.ok) {
             let message = response.statusText || 'Failed to load live floor data.';
             try {
@@ -708,7 +708,8 @@ const pushInventoryItemRequest = async ({ inventoryId, scryfallId = 'unknown', o
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 inventoryId,
-                priceOffsetCents: Number.isFinite(offsetCents) ? offsetCents : 1
+                priceOffsetCents: Number.isFinite(offsetCents) ? offsetCents : 1,
+                concurrency: 5
             })
         });
         const message = summarizeApiResult(result, `Card ${scryfallId || 'unknown'} synced to ManaPool.`);
@@ -768,29 +769,39 @@ const pushAllInventory = async () => {
     const variantStepId = addPushProgressStep('variant-feed', 'Downloading latest prices...', 'Contacting ManaPool...', 'running');
     let variantStepCompleted = false;
     try {
-        for (let i = 0; i < total; i += 1) {
-            const item = pushModalInventory[i];
-            updatePushProgress(i, total, `Pushing ${item.name} (${i + 1}/${total})...`);
-            const stepId = addPushProgressStep(item.id || `item-${i}`, item.name, 'Queued...', 'pending') || `item-${i}`;
-            updatePushProgressStep(stepId, 'Sending to ManaPool...', 'running');
-            const pushed = await pushInventoryItemRequest({
-                inventoryId: item.id,
-                scryfallId: item.scryfallId || 'unknown',
-                offsetCents: offset,
-                refresh: false
-            });
-            if (!variantStepCompleted && variantStepId) {
-                updatePushProgressStep(variantStepId, 'Latest prices downloaded', 'success');
-                variantStepCompleted = true;
+        let index = 0;
+        const maxWorkers = 5;
+        const stepIds = pushModalInventory.map((item, i) => addPushProgressStep(item.id || `item-${i}`, item.name, 'Queued...', 'pending') || `item-${i}`);
+        const worker = async () => {
+            while (true) {
+                const current = index;
+                index += 1;
+                if (current >= total) break;
+                const item = pushModalInventory[current];
+                updatePushProgress(current, total, `Pushing ${item.name} (${current + 1}/${total})...`);
+                const stepId = stepIds[current];
+                updatePushProgressStep(stepId, 'Sending to ManaPool...', 'running');
+                const pushed = await pushInventoryItemRequest({
+                    inventoryId: item.id,
+                    scryfallId: item.scryfallId || 'unknown',
+                    offsetCents: offset,
+                    refresh: false
+                });
+                if (!variantStepCompleted && variantStepId) {
+                    updatePushProgressStep(variantStepId, 'Latest prices downloaded', 'success');
+                    variantStepCompleted = true;
+                }
+                if (pushed) {
+                    successCount += 1;
+                    updatePushProgressStep(stepId, 'Pushed successfully', 'success');
+                } else {
+                    updatePushProgressStep(stepId, 'Skipped or failed to push', 'skipped');
+                }
+                updatePushProgress(current + 1, total, `Processed ${current + 1} of ${total}`);
             }
-            if (pushed) {
-                successCount += 1;
-                updatePushProgressStep(stepId, 'Pushed successfully', 'success');
-            } else {
-                updatePushProgressStep(stepId, 'Skipped or failed to push', 'skipped');
-            }
-            updatePushProgress(i + 1, total, `Processed ${i + 1} of ${total}`);
-        }
+        };
+        const workers = Array.from({ length: Math.min(maxWorkers, total) }, () => worker());
+        await Promise.all(workers);
         updatePushProgress(total, total, 'Cleaning up remote discrepancies...');
         await cleanupRemoteInventoryClient();
         addPushProgressStep(`cleanup-${Date.now()}`, 'Cleanup', 'Removed remote discrepancies', 'success');

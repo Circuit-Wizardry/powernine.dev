@@ -1,5 +1,7 @@
 import axios from 'axios';
 import { randomUUID } from 'crypto';
+import { chromium } from 'playwright';
+import { scrapeManaPoolListings } from '../scrapers/manapool.js';
 import {
     recordShippingExpense,
     SHIPPING_EXPENSE_CATEGORIES,
@@ -7,7 +9,7 @@ import {
     MANAPOOL_AUTO_SHIPPING_THRESHOLD,
 } from './expense-helpers.js';
 import { sendManaPoolWebhook } from '../discord.js';
-import { logDiscordEvent, updateAutomationBotState } from './discord-bot.js';
+import { logDiscordConsole, logDiscordEvent, updateAutomationBotState } from './discord-bot.js';
 
 const API_BASE = process.env.MANAPOOL_API_BASE || 'https://manapool.com/api/v1';
 const API_KEY = process.env.MANAPOOL_API_KEY || '';
@@ -15,11 +17,6 @@ const API_EMAIL = process.env.MANAPOOL_EMAIL || '';
 const SCRYFALL_API_BASE = 'https://api.scryfall.com/cards';
 const SCRYFALL_VALIDATION_DELAY_MS = 200;
 const REMOTE_LOOKUP_DELAY_MS = 200;
-const VARIANT_FEED_CACHE_TTL_MS = 2 * 60 * 1000;
-const variantFeedCache = {
-    timestamp: 0,
-    listings: null
-};
 const REMOTE_INVENTORY_CACHE_TTL_MS = 2 * 60 * 1000;
 const remoteInventoryCache = {
     timestamp: 0,
@@ -50,7 +47,7 @@ export function setInventoryLockState(locked, options = {}) {
     });
     const action = nowLocked ? 'locked' : 'unlocked';
     const reason = inventoryLockState.reason ? `: ${inventoryLockState.reason}` : '';
-    logDiscordEvent(`[inventory] Inventory sync ${action}${reason}`).catch(() => {});
+    logDiscordConsole(`[inventory] Inventory sync ${action}${reason}`).catch(() => {});
     return getInventoryLockState();
 }
 
@@ -58,26 +55,6 @@ const manapoolClient = axios.create({
     baseURL: API_BASE,
     timeout: 20000,
 });
-
-const shouldUseCachedVariantFeed = () => {
-    if (!variantFeedCache.listings) return false;
-    const age = Date.now() - variantFeedCache.timestamp;
-    return age < VARIANT_FEED_CACHE_TTL_MS;
-};
-
-const getCachedVariantListings = async () => {
-    if (shouldUseCachedVariantFeed()) {
-        return variantFeedCache.listings;
-    }
-    const response = await manapoolClient.get('/prices/variants', {
-        headers: { Accept: 'application/json' },
-        timeout: 60000
-    });
-    const listings = Array.isArray(response.data?.data) ? response.data.data : [];
-    variantFeedCache.listings = listings;
-    variantFeedCache.timestamp = Date.now();
-    return listings;
-};
 
 const fetchRemoteInventorySnapshot = async () => {
     if (!hasCredentials()) {
@@ -412,6 +389,38 @@ const fetchTcgplayerIdFromScryfall = async (scryfallId, index = 0) => {
 
 const normalizeCollectorNumber = (value) => String(value || '').trim().toUpperCase();
 
+const normalizeManaPoolSlug = (cardName = '') => {
+    return cardName
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .trim()
+        .replace(/\s+/g, '-');
+};
+
+const normalizeFoilTypeForScrape = (value = 'normal') => {
+    const lower = String(value || 'normal').toLowerCase();
+    if (lower.includes('etch')) return 'etched';
+    if (lower.includes('foil') && !lower.includes('non')) return 'foil';
+    return 'normal';
+};
+
+const normalizeConditionForScrape = (value = 'NM') => {
+    const upper = String(value || 'NM').toUpperCase();
+    if (upper === 'M') return 'NM';
+    return upper;
+};
+
+const buildManaPoolCardUrl = (item = {}) => {
+    const setCode = (item.setCode || item.set_code || '').toLowerCase();
+    const number = normalizeCollectorNumber(item.collectorNumber || item.number || '');
+    const name = item.name || item.cardName || '';
+    if (!setCode || !number || !name) return null;
+    const slug = normalizeManaPoolSlug(name) || encodeURIComponent(name.toLowerCase());
+    return `https://manapool.com/card/${setCode}/${encodeURIComponent(number)}/${slug}`;
+};
+
 const buildVariantKey = (item = {}) => {
     const setCode = (item.setCode || '').toUpperCase();
     const number = normalizeCollectorNumber(item.collectorNumber || item.number);
@@ -431,56 +440,85 @@ const formatVariantKeyFromListing = (listing = {}) => {
 };
 
 export const fetchVariantFloorsForInventory = async (items = [], options = {}) => {
-    const includeSelfSellers = Boolean(options.includeSelfSellers);
-    const targetKeys = new Set();
-    items.forEach((item) => {
+    const result = new Map();
+    if (!Array.isArray(items) || !items.length) return result;
+    const concurrency = Math.max(1, Math.min(Number(options.concurrency) || 5, 10));
+
+    // Deduplicate variant keys so each card is scraped once.
+    const queue = [];
+    const seen = new Set();
+    for (const item of items) {
         const key = buildVariantKey(item);
-        if (key) targetKeys.add(key);
-    });
-    if (!targetKeys.size) return new Map();
-    try {
-        const listings = await getCachedVariantListings();
-        const bucketMap = new Map();
-        listings.forEach((listing) => {
-            const key = formatVariantKeyFromListing(listing);
-            if (!key || !targetKeys.has(key)) return;
-            const sellerNameRaw = extractListingSellerName(listing);
-            const isSelf = Boolean(sellerNameRaw && SELF_SELLER_NAME && sellerNameRaw === SELF_SELLER_NAME);
-            const priceCents = Number(listing.low_price);
-            if (!Number.isFinite(priceCents) || priceCents <= 0) return;
-            const candidate = {
-                priceCents,
-                available: Number(listing.available_quantity) || 0,
-                url: listing.url || null,
-                sellerName: sellerNameRaw || null,
-                isSelf,
-                rawListing: listing
-            };
-            const record = bucketMap.get(key) || { any: null, nonSelf: null };
-            if (!record.any || priceCents < record.any.priceCents) {
-                record.any = candidate;
-            }
-            if (!isSelf && (!record.nonSelf || priceCents < record.nonSelf.priceCents)) {
-                record.nonSelf = candidate;
-            }
-            bucketMap.set(key, record);
-        });
-        const result = new Map();
-        targetKeys.forEach((key) => {
-            const record = bucketMap.get(key);
-            if (!record) return;
-            const selection = includeSelfSellers
-                ? (record.any || record.nonSelf)
-                : (record.nonSelf || record.any);
-            if (selection) {
-                result.set(key, selection);
-            }
-        });
-        return result;
-    } catch (error) {
-        console.error('[manapool] Failed to fetch ManaPool variant prices:', error.message || error);
-        return new Map();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        queue.push({ key, item });
     }
+    if (!queue.length) return result;
+
+    const maxWorkers = Math.min(concurrency, queue.length);
+    let browser;
+    try {
+        browser = await chromium.launch({ headless: true });
+        const context = await browser.newContext({
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
+        });
+
+        let index = 0;
+        const pages = await Promise.all(Array.from({ length: maxWorkers }).map(() => context.newPage()));
+
+        const worker = async (page) => {
+            while (true) {
+                const currentIndex = index;
+                index += 1;
+                if (currentIndex >= queue.length) break;
+                const { key, item } = queue[currentIndex];
+                const url = buildManaPoolCardUrl(item);
+                if (!url) continue;
+                const foilType = normalizeFoilTypeForScrape(item.foilType || item.finish_id || 'normal');
+                const targetCondition = normalizeConditionForScrape(item.condition || item.condition_id || 'NM');
+                try {
+                    const scrapeResult = await scrapeManaPoolListings(page, url, foilType, targetCondition, { collectAll: true });
+                    const listings = Array.isArray(scrapeResult?.listings) ? scrapeResult.listings : [];
+                    const fallbackListing = Number.isFinite(scrapeResult?.cheapestPrice) && scrapeResult.cheapestPrice > 0
+                        ? [{
+                            price: scrapeResult.cheapestPrice,
+                            sellerName: scrapeResult.sellerName || null,
+                            condition: targetCondition,
+                            foilType
+                        }]
+                        : [];
+                    const candidates = listings.length ? listings : fallbackListing;
+                    if (!candidates.length) continue;
+                    // Take the cheapest candidate
+                    candidates.sort((a, b) => Number(a.price || Infinity) - Number(b.price || Infinity));
+                    const best = candidates[0];
+                    if (!Number.isFinite(best.price) || best.price <= 0) continue;
+                    const priceCents = Math.round(best.price * 100);
+                    const normalizedSeller = normalizeSellerNameValue(best.sellerName);
+                    const isSelf = Boolean(normalizedSeller && SELF_SELLER_NAME && normalizedSeller === SELF_SELLER_NAME);
+                    result.set(key, {
+                        priceCents,
+                        available: null,
+                        url,
+                        sellerName: normalizedSeller || (best.sellerName ? best.sellerName.trim().toLowerCase() : null),
+                        isSelf,
+                        rawListing: null
+                    });
+                } catch (error) {
+                    console.warn(`[manapool] Failed scraping ${item.name || key}:`, error.message || error);
+                }
+            }
+        };
+
+        await Promise.all(pages.map((page) => worker(page).finally(() => page.close().catch(() => {}))));
+    } catch (error) {
+        console.error('[manapool] Failed to scrape ManaPool variant prices:', error.message || error);
+        return new Map();
+    } finally {
+        if (browser) await browser.close().catch(() => {});
+    }
+
+    return result;
 };
 
 const buildPushPayload = async (items = [], options = {}) => {
@@ -565,9 +603,10 @@ const logVariantSellersForItems = async (items = []) => {
     }
 };
 
-const buildUndercutAutomationContext = async (items = [], offsetCents = 1) => {
+const buildUndercutAutomationContext = async (items = [], offsetCents = 1, options = {}) => {
     let variantPriceMap = new Map();
     const normalizedOffset = Number.isFinite(Number(offsetCents)) ? Math.max(1, Number(offsetCents)) : 1;
+    const concurrency = options?.concurrency;
     const automation = {
         strategy: { type: 'undercutBest', value: normalizedOffset },
         variantPriceMap,
@@ -577,7 +616,7 @@ const buildUndercutAutomationContext = async (items = [], offsetCents = 1) => {
         dropThresholdPercent: 0
     };
     try {
-        variantPriceMap = await fetchVariantFloorsForInventory(items);
+        variantPriceMap = await fetchVariantFloorsForInventory(items, { concurrency });
         automation.variantPriceMap = variantPriceMap;
     } catch (error) {
         automation.variantPriceMap = new Map();
@@ -631,7 +670,11 @@ const pushInventoryRows = async (items = [], options = {}) => {
     let automationValueDeltaCents = 0;
     const automationDropAlerts = [];
     const automationPriceDrops = [];
+    const automationPriceIncreases = [];
+    let automationIncreaseCents = 0;
+    let automationDecreaseCents = 0;
     let sortedDrops = [];
+    let sortedRaises = [];
 
     const getBaselineForContext = (context) => {
         if (!automationOptions?.baselineMap || !context?.inventory?.id) return null;
@@ -786,17 +829,27 @@ const pushInventoryRows = async (items = [], options = {}) => {
                 return null;
             }
             const effectiveCompetitorPrice = variant.priceCents;
-            if (effectiveCompetitorPrice >= ourPrice) {
-                pair.context.__automationReason = 'Competitor price not lower than ours';
-                return null;
-            }
-            if (variant.sellerName && SELF_SELLER_NAME && variant.sellerName === SELF_SELLER_NAME) {
+            const competitorIsSelf = Boolean(
+                (variant.isSelf) ||
+                (variant.sellerName && SELF_SELLER_NAME && variant.sellerName === SELF_SELLER_NAME)
+            );
+            if (competitorIsSelf) {
                 pair.context.__automationReason = 'Cheapest listing is yours';
                 return null;
             }
             const offset = Number.isFinite(strategy.value) ? strategy.value : 1;
-            targetCents = Math.max(1, variant.priceCents - offset);
-            pair.context.__automationReason = `Undercutting ${variant.sellerName || 'unknown'} by ${offset}¢ (compared against $${(effectiveCompetitorPrice / 100).toFixed(2)})`;
+            if (effectiveCompetitorPrice < ourPrice) {
+                // Under our price: undercut to stay ahead
+                targetCents = Math.max(1, effectiveCompetitorPrice - offset);
+                pair.context.__automationReason = `Undercutting ${variant.sellerName || 'unknown'} by ${offset}¢ (competitor $${(effectiveCompetitorPrice / 100).toFixed(2)})`;
+            } else if (effectiveCompetitorPrice > ourPrice + offset) {
+                // Above our price: raise up to just under competitor
+                targetCents = Math.max(1, effectiveCompetitorPrice - offset);
+                pair.context.__automationReason = `Raising to ${offset}¢ under ${variant.sellerName || 'unknown'} (competitor $${(effectiveCompetitorPrice / 100).toFixed(2)})`;
+            } else {
+                pair.context.__automationReason = 'Competitor within offset; holding price';
+                return null;
+            }
         } else if (strategy.type === 'manaPoolLowPercent') {
             const base = Number(item.manaPoolLow);
             if (base > 0) {
@@ -902,17 +955,30 @@ const pushInventoryRows = async (items = [], options = {}) => {
                     context.__automationReason = updated ? 'Manual push adjusted price' : 'Manual push kept price';
                 }
             }
-            if (automationOptions && previousPrice > entry.price_cents) {
-                automationPriceDrops.push({
-                    name: context.inventory?.name || 'Unknown',
-                    setCode: context.inventory?.setCode || '',
-                    foilType: context.inventory?.foilType || 'normal',
-                    condition: context.inventory?.condition || 'NM',
-                    previous: previousPrice,
-                    current: entry.price_cents,
-                    delta: previousPrice - entry.price_cents,
-                    reason: context.__automationReason || ''
-                });
+            if (automationOptions) {
+                if (previousPrice > entry.price_cents) {
+                    automationPriceDrops.push({
+                        name: context.inventory?.name || 'Unknown',
+                        setCode: context.inventory?.setCode || '',
+                        foilType: context.inventory?.foilType || 'normal',
+                        condition: context.inventory?.condition || 'NM',
+                        previous: previousPrice,
+                        current: entry.price_cents,
+                        delta: previousPrice - entry.price_cents,
+                        reason: context.__automationReason || ''
+                    });
+                } else if (previousPrice < entry.price_cents) {
+                    automationPriceIncreases.push({
+                        name: context.inventory?.name || 'Unknown',
+                        setCode: context.inventory?.setCode || '',
+                        foilType: context.inventory?.foilType || 'normal',
+                        condition: context.inventory?.condition || 'NM',
+                        previous: previousPrice,
+                        current: entry.price_cents,
+                        delta: entry.price_cents - previousPrice,
+                        reason: context.__automationReason || ''
+                    });
+                }
             }
         }
     });
@@ -945,8 +1011,14 @@ const pushInventoryRows = async (items = [], options = {}) => {
             if (!qty) return;
             const previous = Number(entry.previous_price_cents ?? 0);
             const current = Number(entry.price_cents ?? previous);
+            const deltaPer = current - previous;
             automationCardsUpdated += qty;
-            automationValueDeltaCents += (current - previous) * qty;
+            automationValueDeltaCents += deltaPer * qty;
+            if (deltaPer > 0) {
+                automationIncreaseCents += deltaPer * qty;
+            } else if (deltaPer < 0) {
+                automationDecreaseCents += Math.abs(deltaPer * qty);
+            }
             const baselineReference = getBaselineForContext(context);
             const reference = Number.isFinite(baselineReference) && baselineReference > 0 ? baselineReference : previous;
             const threshold = Number(automationOptions?.dropThresholdPercent);
@@ -1073,42 +1145,69 @@ const pushInventoryRows = async (items = [], options = {}) => {
     }
 
     if (!simulateOnly && shouldNotifyAutomation && automationCardsUpdated > 0) {
-        const formattedDelta = `${automationValueDeltaCents >= 0 ? '+' : '-'}$${(Math.abs(automationValueDeltaCents) / 100).toFixed(2)}`;
-        let automationMessage = `${automationCardsUpdated} cards updated. Total value change ${formattedDelta}.`;
-        if (automationDropAlerts.length) {
-            const alertSummary = automationDropAlerts.slice(0, 5).map((alert) => {
-                const label = alert.setCode ? `${alert.name} (${alert.setCode})` : alert.name;
-                return `${label}: -${alert.percent.toFixed(1)}% -> $${alert.current.toFixed(2)}`;
-            }).join(' | ');
-            automationMessage += ` Alerts: ${alertSummary}`;
-        }
-        const webhookPayload = {
-            content: automationMessage,
-            embeds: []
-        };
+        const formatSigned = (cents) => `${cents >= 0 ? '+' : '-'}$${(Math.abs(cents) / 100).toFixed(2)}`;
+        const formattedDelta = formatSigned(automationValueDeltaCents);
+        const incText = automationIncreaseCents ? `↑${formatSigned(automationIncreaseCents)}` : '';
+        const decText = automationDecreaseCents ? `↓-${(automationDecreaseCents / 100).toFixed(2)}` : '';
+
         sortedDrops = automationPriceDrops
             .filter(entry => Number.isFinite(entry.delta) && entry.delta > 0)
             .sort((a, b) => b.delta - a.delta)
-            .slice(0, 25);
-        if (sortedDrops.length) {
-            webhookPayload.embeds.push({
-                title: 'Cards reduced this run',
-                fields: sortedDrops.map((entry) => ({
-                    name: `${entry.name} ${entry.setCode ? `(${entry.setCode})` : ''}`.trim(),
-                    value: `-${formatCentsValue(entry.delta)} (${formatCentsValue(entry.previous)} -> ${formatCentsValue(entry.current)})${entry.reason ? `\n${entry.reason}` : ''}`
-                })),
-                footer: {
-                    text: `${sortedDrops.length} cards decreased`
-                }
+            .slice(0, 15);
+        sortedRaises = automationPriceIncreases
+            .filter(entry => Number.isFinite(entry.delta) && entry.delta > 0)
+            .sort((a, b) => b.delta - a.delta)
+            .slice(0, 15);
+
+        const alertLines = automationDropAlerts.slice(0, 10).map((alert) => {
+            const label = alert.setCode ? `${alert.name} (${alert.setCode})` : alert.name;
+            return `• **${label}**: -${alert.percent.toFixed(1)}% → $${alert.current.toFixed(2)}`;
+        });
+
+        const dropLines = sortedDrops.map((entry) =>
+            `• ${entry.name}${entry.setCode ? ` (${entry.setCode})` : ''}: -${formatCentsValue(entry.delta)} (${formatCentsValue(entry.previous)} → ${formatCentsValue(entry.current)})`
+        );
+        const raiseLines = sortedRaises.map((entry) =>
+            `• ${entry.name}${entry.setCode ? ` (${entry.setCode})` : ''}: +${formatCentsValue(entry.delta)} (${formatCentsValue(entry.previous)} → ${formatCentsValue(entry.current)})`
+        );
+
+        const embed = {
+            title: 'ManaPool Automation',
+            color: 0x2ecc71,
+            description: [
+                `Cards updated: **${automationCardsUpdated}**`,
+                `Δ value: **${formattedDelta}** ${[incText, decText].filter(Boolean).join(' ')}`.trim()
+            ].join('\n'),
+            fields: []
+        };
+
+        if (raiseLines.length) {
+            embed.fields.push({
+                name: 'Top increases',
+                value: raiseLines.join('\n')
             });
         }
-        await sendManaPoolWebhook(webhookPayload);
+        if (dropLines.length) {
+            embed.fields.push({
+                name: 'Top decreases',
+                value: dropLines.join('\n')
+            });
+        }
+        if (alertLines.length) {
+            embed.fields.push({
+                name: 'Alerts',
+                value: alertLines.join('\n')
+            });
+        }
+
+        await sendManaPoolWebhook({ embeds: [embed] });
     }
 
     const automationSummary = automationOptions ? {
         cardsUpdated: automationCardsUpdated,
         valueDeltaCents: automationValueDeltaCents,
         priceDrops: sortedDrops,
+        priceIncreases: sortedRaises,
         alerts: automationDropAlerts,
         message: messages.join(' '),
         runAt: new Date().toISOString()
@@ -1241,9 +1340,10 @@ export async function pullInventoryFromManaPool() {
 
 export async function pushInventoryToManaPool(db, options = {}) {
     const localInventory = await getLocalInventoryRows(db);
+    const concurrency = Math.max(1, Math.min(Number(options.concurrency) || 5, 10));
     let automation = options.automation || null;
     if (!automation) {
-        automation = await buildUndercutAutomationContext(localInventory, options.priceOffsetCents ?? 1);
+        automation = await buildUndercutAutomationContext(localInventory, options.priceOffsetCents ?? 1, { concurrency });
     }
     return pushInventoryRows(localInventory, {
         priceOffsetCents: options.priceOffsetCents ?? 1,
@@ -1269,12 +1369,10 @@ export async function pushInventoryItemsToManaPool(db, inventoryIds = [], option
             preview: []
         };
     }
-    logVariantSellersForItems(rows).catch((error) => {
-        console.warn('[manapool] Variant seller logging failed:', error.message || error);
-    });
     let automation = options?.automation || null;
     if (!automation) {
-        automation = await buildUndercutAutomationContext(rows, options?.priceOffsetCents ?? 1);
+        const concurrency = Math.max(1, Math.min(Number(options?.concurrency) || 5, 10));
+        automation = await buildUndercutAutomationContext(rows, options?.priceOffsetCents ?? 1, { concurrency });
     }
     return pushInventoryRows(rows, {
         priceOffsetCents: options?.priceOffsetCents,

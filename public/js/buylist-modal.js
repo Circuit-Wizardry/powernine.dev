@@ -681,6 +681,14 @@
 
         const renderMessageCards = () => {
             if (!elements.messageCards) return;
+            const previouslySelected = new Set();
+            const existingCheckboxes = elements.messageCards.querySelectorAll('input[type="checkbox"][data-card-id]');
+            const hasExistingCheckboxes = existingCheckboxes.length > 0;
+            existingCheckboxes.forEach((checkbox) => {
+                if (checkbox.checked && checkbox.dataset.cardId) {
+                    previouslySelected.add(String(checkbox.dataset.cardId));
+                }
+            });
             const candidates = state.messageCandidates || [];
             elements.messageCards.innerHTML = '';
             if (!candidates.length) {
@@ -697,6 +705,7 @@
             const { item, summary } = entry;
             const tcgLow = toNumeric(item.metrics.tcgLow);
             const negotiated = Number.isFinite(tcgLow) ? tcgLow * state.negotiatePercent : null;
+            const selectionKey = String(item.card.id ?? index);
             const row = document.createElement('label');
             row.className = 'buylist-message-row';
             row.dataset.cardIndex = index;
@@ -704,7 +713,11 @@
             const checkbox = document.createElement('input');
                 checkbox.type = 'checkbox';
                 checkbox.dataset.cardIndex = index;
-                checkbox.checked = index < 10 || candidates.length <= 10;
+                checkbox.dataset.cardId = selectionKey;
+                const shouldCheck = previouslySelected.size
+                    ? previouslySelected.has(selectionKey)
+                    : (!hasExistingCheckboxes && (index < 10 || candidates.length <= 10));
+                checkbox.checked = shouldCheck;
 
                 const body = document.createElement('div');
                 const title = document.createElement('div');
@@ -713,7 +726,7 @@
 
                 const meta = document.createElement('div');
                 meta.className = 'buylist-message-row__meta';
-                meta.textContent = `${item.card.setCode} • #${item.card.collectorNumber} • ${item.card.foilType}`;
+                meta.textContent = `${item.card.setCode} | #${item.card.collectorNumber} | ${item.card.foilType}`;
 
                 const pricing = document.createElement('div');
                 pricing.className = 'buylist-message-row__pricing';
@@ -722,14 +735,24 @@
                         ? formatSignedPercent(summary.marginPercent)
                         : formatSignedCurrency(summary.marginDollar);
                     const referenceText = Number.isFinite(tcgLow) ? formatCurrency(tcgLow) : 'N/A';
-                    pricing.textContent = `Offer: ${formatCurrency(negotiated)} (${Math.round(state.negotiatePercent * 100)}% of TCG Low ${referenceText}) • Best margin: ${marginText}`;
+                    pricing.textContent = `Offer: ${formatCurrency(negotiated)} (${Math.round(state.negotiatePercent * 100)}% of TCG Low ${referenceText}) | Best margin: ${marginText}`;
                 } else {
                     pricing.textContent = 'No TCG Low available to compute offer.';
+                }
+
+                const buylist = document.createElement('div');
+                buylist.className = 'buylist-message-row__buylist';
+                if (summary.vendorLabel && Number.isFinite(summary.buylistValue)) {
+                    const referenceText = Number.isFinite(summary.reference) ? ` vs ref ${formatCurrency(summary.reference)}` : '';
+                    buylist.textContent = `${summary.vendorLabel} buylist: ${formatCurrency(summary.buylistValue)}${referenceText}`;
+                } else {
+                    buylist.textContent = 'No buylist data yet.';
                 }
 
                 body.appendChild(title);
                 body.appendChild(meta);
                 body.appendChild(pricing);
+                body.appendChild(buylist);
 
                 row.appendChild(checkbox);
                 row.appendChild(body);
@@ -799,13 +822,22 @@
         const collectSelectedMessageCards = () => {
             if (!elements.messageCards) return [];
             const selected = [];
+            const selectedKeys = new Set();
+            const candidateById = new Map(
+                (state.messageCandidates || []).map((entry, idx) => [String(entry.item.card.id ?? idx), entry])
+            );
             const checkboxes = elements.messageCards.querySelectorAll('input[type="checkbox"][data-card-index]');
             checkboxes.forEach((checkbox) => {
                 if (!checkbox.checked) return;
+                const key = checkbox.dataset.cardId;
                 const index = Number(checkbox.dataset.cardIndex);
                 if (Number.isNaN(index)) return;
-                const entry = state.messageCandidates[index];
-                if (entry) selected.push(entry);
+                const entry = (key && candidateById.get(String(key))) || state.messageCandidates[index];
+                if (!entry) return;
+                const entryKey = String(entry.item.card.id ?? index);
+                if (selectedKeys.has(entryKey)) return;
+                selectedKeys.add(entryKey);
+                selected.push(entry);
             });
             return selected;
         };

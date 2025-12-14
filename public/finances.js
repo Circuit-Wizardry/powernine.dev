@@ -32,6 +32,7 @@ const refreshSummaryBtn = document.getElementById('refresh-summary-btn');
 const refreshSnapshotsBtn = document.getElementById('refresh-snapshots-btn');
 const refreshExpensesBtn = document.getElementById('refresh-expenses-btn');
 const captureSnapshotBtn = document.getElementById('capture-snapshot-btn');
+const refreshBuylistBtn = document.getElementById('refresh-buylist-channel-btn');
 const expenseModal = document.getElementById('expense-modal');
 const expenseForm = document.getElementById('expense-form');
 const expenseIdInput = document.getElementById('expense-id');
@@ -51,6 +52,9 @@ const cardLedgerBody = document.getElementById('card-ledger-body');
 const refreshCardLedgerBtn = document.getElementById('refresh-card-ledger-btn');
 const shippingLedgerBody = document.getElementById('shipping-ledger-body');
 const refreshShippingLedgerBtn = document.getElementById('refresh-shipping-ledger-btn');
+const buylistProgress = document.getElementById('buylist-progress');
+const buylistProgressBar = document.getElementById('buylist-progress-bar');
+const buylistProgressText = document.getElementById('buylist-progress-text');
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -97,6 +101,19 @@ const showToast = (message, type = 'info') => {
     showToast.timeout = setTimeout(() => {
         toastEl.classList.remove('show');
     }, 3500);
+};
+
+const setBuylistProgress = (isActive) => {
+    if (!buylistProgress) return;
+    if (isActive) {
+        buylistProgress.classList.remove('hidden');
+        if (buylistProgressBar) buylistProgressBar.style.width = '0%';
+        if (buylistProgressText) buylistProgressText.textContent = 'Updating card 0 of 0';
+    } else {
+        buylistProgress.classList.add('hidden');
+        if (buylistProgressBar) buylistProgressBar.style.width = '0%';
+        if (buylistProgressText) buylistProgressText.textContent = '';
+    }
 };
 
 const fetchJson = async (url, options = {}) => {
@@ -307,6 +324,57 @@ const renderExpenseTable = () => {
     `).join('');
 };
 
+const refreshBuylistChannel = async () => {
+    if (!refreshBuylistBtn) return;
+    const originalText = refreshBuylistBtn.textContent;
+    refreshBuylistBtn.disabled = true;
+    refreshBuylistBtn.textContent = 'Updating...';
+    setBuylistProgress(true);
+    let pollInterval = null;
+    const startPoll = () => {
+        pollInterval = setInterval(async () => {
+            try {
+                const statusResp = await fetch('/api/buylist/report/status');
+                if (!statusResp.ok) return;
+                const status = await statusResp.json();
+                if (status && status.total) {
+                    const pct = Math.min(100, Math.round((status.processed / status.total) * 100));
+                    if (buylistProgressBar) buylistProgressBar.style.width = `${pct}%`;
+                    const msg = status.message || '';
+                    const processed = status.processed || 0;
+                    const total = status.total || 0;
+                    if (buylistProgressText) buylistProgressText.textContent = `${msg || `Updating card ${processed} of ${total}`} (${pct}%)`;
+                }
+                if (status && !status.active) {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    setBuylistProgress(false);
+                }
+            } catch {
+                // ignore polling errors
+            }
+        }, 1200);
+    };
+    startPoll();
+    try {
+        const response = await fetch('/api/buylist/report/refresh', { method: 'POST' });
+        if (!response.ok) throw new Error(await response.text() || 'Failed to refresh buylist report.');
+        if (buylistProgressBar) buylistProgressBar.style.width = '100%';
+        showToast('Buylist channel updated.');
+    } catch (error) {
+        console.error('[buylist] refresh error:', error);
+        showToast(error.message || 'Failed to refresh buylist report.', true);
+    } finally {
+        if (pollInterval) {
+            clearInterval(pollInterval);
+            pollInterval = null;
+        }
+        refreshBuylistBtn.textContent = originalText;
+        refreshBuylistBtn.disabled = false;
+        setBuylistProgress(false);
+    }
+};
+
 const openExpenseModal = (expense = null) => {
     if (!expenseModal) return;
     expenseIdInput.value = expense?.id || '';
@@ -433,7 +501,7 @@ const loadSnapshots = async () => {
 
 const loadExpenses = async () => {
     try {
-        const { expenses } = await fetchJson('/api/finances/expenses?limit=300');
+        const { expenses } = await fetchJson('/api/finances/expenses?limit=300&includeCardPurchases=true');
         state.expenses = expenses || [];
         renderCardLedger();
         renderShippingLedger();
@@ -636,7 +704,44 @@ const createInventoryEntryForPurchase = async (item) => {
 };
 
 const logCardPurchaseEntry = async (item, { paymentMethod = null, purchaseDate } = {}) => {
-    await createInventoryEntryForPurchase(item);
+    const inventoryId = await createInventoryEntryForPurchase(item);
+    const quantity = Number.isFinite(item.quantity) ? item.quantity : Number.parseInt(item.quantity, 10) || 1;
+    const perUnit = Number(item.perUnitCost);
+    const totalCost = Number.isFinite(perUnit) ? Number((perUnit * quantity).toFixed(2)) : null;
+    if (!Number.isFinite(totalCost) || totalCost <= 0) {
+        throw new Error('Card purchase requires a valid cost.');
+    }
+
+    const descriptionParts = [
+        item.name,
+        item.setCode ? `(${String(item.setCode).toUpperCase()} #${item.collectorNumber || ''})` : null,
+    ].filter(Boolean);
+
+    const expensePayload = {
+        description: descriptionParts.join(' ').trim() || item.name,
+        amount: totalCost,
+        category: 'Card Purchase',
+        paymentMethod: paymentMethod || null,
+        incurredOn: purchaseDate,
+        linkedInventoryId: inventoryId,
+        notes: buildCardPurchaseNotes(item),
+    };
+
+    try {
+        await fetchJson('/api/finances/expenses', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(expensePayload),
+        });
+    } catch (error) {
+        // If the expense fails to log, roll back the inventory entry to avoid orphan rows.
+        try {
+            await fetchJson(`/api/inventory/${inventoryId}`, { method: 'DELETE' });
+        } catch (cleanupError) {
+            console.warn('Failed to roll back inventory after expense error:', cleanupError);
+        }
+        throw error;
+    }
 };
 const createDiscretePurchaseFlow = () => {
     const elements = {
@@ -1507,6 +1612,7 @@ const handleDocumentClickForMenu = (event) => {
 };
 
 const initFinancesPage = () => {
+    setBuylistProgress(false);
     loadSummary();
     loadExpenses();
 
@@ -1515,6 +1621,7 @@ const initFinancesPage = () => {
     refreshExpensesBtn?.addEventListener('click', loadExpenses);
     refreshCardLedgerBtn?.addEventListener('click', loadExpenses);
     refreshShippingLedgerBtn?.addEventListener('click', loadExpenses);
+    refreshBuylistBtn?.addEventListener('click', refreshBuylistChannel);
     captureSnapshotBtn?.addEventListener('click', captureSnapshot);
 
     recordExpenseBtn?.addEventListener('click', () => openExpenseModal());

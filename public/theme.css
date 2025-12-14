@@ -598,6 +598,10 @@ textarea::placeholder {
     min-width: 220px;
 }
 
+.buylist-progress.hidden {
+    display: none !important;
+}
+
 .buylist-progress-bar-container {
     width: 160px;
     height: 8px;

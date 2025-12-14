@@ -27,6 +27,13 @@
                 </div>
                 <button type="button" class="secondary-btn" id="record-expense-btn">Log Expense</button>
                 <button type="button" class="ghost-btn" id="refresh-summary-btn">Refresh</button>
+                <button type="button" class="ghost-btn" id="refresh-buylist-channel-btn">Update Buylist</button>
+                <div id="buylist-progress" class="buylist-progress hidden" aria-live="polite">
+                    <div class="buylist-progress-bar-container">
+                        <div class="buylist-progress-fill" id="buylist-progress-bar"></div>
+                    </div>
+                    <span id="buylist-progress-text">Updating buylist…</span>
+                </div>
                 <a href="/transactions.html" class="back-button">View Transactions</a>
                 <a href="/" class="back-button">Home</a>
             </div>

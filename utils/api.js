@@ -35,6 +35,7 @@ import {
     MANAPOOL_AUTO_SHIPPING_AMOUNT,
     MANAPOOL_AUTO_SHIPPING_THRESHOLD,
 } from './expense-helpers.js';
+import { refreshBuylistReport, getStoredBuylistReport, refreshInventoryBuylistSnapshot, getBuylistProgress } from './buylist-reporter.js';
 
 const FIXED_SHIPPING_EXPENSE = 0; // Default packaging cost when none supplied
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-1.5-flash-latest';
@@ -693,7 +694,8 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
             const priceOffsetCents = Number.isFinite(Number(req.body?.priceOffsetCents))
                 ? Number(req.body.priceOffsetCents)
                 : 1;
-            const result = await pushInventoryToManaPool(db, { priceOffsetCents, deleteMissing: true });
+            const concurrency = Math.max(1, Math.min(Number(req.body?.concurrency) || 5, 10));
+            const result = await pushInventoryToManaPool(db, { priceOffsetCents, deleteMissing: true, concurrency });
             res.json(result);
         } catch (error) {
             console.error('[manapool] push inventory error:', error);
@@ -712,7 +714,8 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
             const priceOffsetCents = Number.isFinite(Number(req.body?.priceOffsetCents))
                 ? Number(req.body.priceOffsetCents)
                 : 1;
-            const result = await pushInventoryItemsToManaPool(db, ids, { priceOffsetCents });
+            const concurrency = Math.max(1, Math.min(Number(req.body?.concurrency) || 5, 10));
+            const result = await pushInventoryItemsToManaPool(db, ids, { priceOffsetCents, concurrency });
             res.json(result);
         } catch (error) {
             console.error('[manapool] push inventory item error:', error);
@@ -799,7 +802,8 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
         try {
             const limit = Math.min(Math.max(parseInt(req.query?.limit, 10) || 100, 1), 500);
             const settings = await getAutomationSettings(db);
-            const automationContext = await buildAutomationPayload(settings);
+            const concurrency = Math.max(1, Math.min(parseInt(req.query?.concurrency, 10) || 5, 10));
+            const automationContext = await buildAutomationPayload(settings, { concurrency });
             if (!automationContext) {
                 return res.status(400).json({ error: 'Automation context not ready yet.' });
             }
@@ -960,17 +964,23 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
 
     router.get('/finances/expenses', async (req, res) => {
         try {
+            const includeCardPurchases = String(req.query?.includeCardPurchases || '').toLowerCase() === 'true';
             const limit = Math.min(Math.max(parseInt(req.query?.limit, 10) || 200, 1), 500);
-            const rows = await dbAllAsync(`
+            const filters = [
+                "NOT (LOWER(category) LIKE 'secret lair%')"
+            ];
+            if (!includeCardPurchases) {
+                filters.push("LOWER(category) <> 'card purchase'");
+            }
+            const whereClause = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+            const sql = `
                 SELECT id, description, amount, category, paymentMethod, incurredOn, createdAt, linkedInventoryId, notes
                 FROM expense_entries
-                WHERE NOT (
-                    LOWER(category) LIKE 'secret lair%'
-                    OR LOWER(category) = 'card purchase'
-                )
+                ${whereClause}
                 ORDER BY datetime(incurredOn) DESC, datetime(createdAt) DESC
                 LIMIT ?
-            `, [limit]);
+            `;
+            const rows = await dbAllAsync(sql, [limit]);
             res.json({ expenses: rows.map(mapExpenseRow) });
         } catch (error) {
             console.error('[finances] fetch expenses error:', error);
@@ -1649,6 +1659,40 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
             if (err) return res.status(500).json({ message: 'Database error.' });
             res.status(200).json({ message: 'Inventory buylist snapshot saved.' });
         });
+    });
+
+    router.get('/buylist/report', async (_req, res) => {
+        try {
+            const report = await getStoredBuylistReport();
+            const needsRefresh = !report || !Array.isArray(report.allDeals);
+            if (!needsRefresh) {
+                return res.json(report);
+            }
+            const refreshed = await refreshBuylistReport(db);
+            res.json(refreshed);
+        } catch (error) {
+            console.error('[buylist] report error:', error);
+            res.status(500).json({ error: error.message || 'Failed to load buylist report.' });
+        }
+    });
+
+    router.post('/buylist/report/refresh', async (_req, res) => {
+        try {
+            // Snapshot will be refreshed inside the beforeBuild hook; avoid double runs.
+            const report = await refreshBuylistReport(db);
+            res.json(report);
+        } catch (error) {
+            console.error('[buylist] refresh error:', error);
+            res.status(500).json({ error: error.message || 'Failed to refresh buylist report.' });
+        }
+    });
+
+    router.get('/buylist/report/status', (_req, res) => {
+        try {
+            res.json(getBuylistProgress());
+        } catch (error) {
+            res.status(500).json({ error: error.message || 'Failed to load buylist status.' });
+        }
     });
 
     // --- Endpoint to browse/search lists ---
