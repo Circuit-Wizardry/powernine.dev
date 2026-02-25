@@ -13,6 +13,7 @@ import { chromium } from 'playwright'; // Import Playwright
 import { scrapeTcgplayerData } from '../scrapers/tcgplayer.js';
 import { scrapeManaPoolListings } from '../scrapers/manapool.js';
 import { scrapeStarCityGamesBuylist } from '../scrapers/starcitygames.js';
+import { spawn } from 'child_process';
 import {
     getAccountStatus as getManaPoolStatus,
     pullInventoryFromManaPool,
@@ -157,6 +158,7 @@ const pdfUpload = multer({
 export default function(db, options = {}) {
     const router = express.Router();
     const uploadRoot = options.uploadRoot ? path.resolve(options.uploadRoot) : path.resolve('./private/uploads');
+    let dailyUpdateProcess = null;
 
     const csvUpload = multer({ storage: multer.memoryStorage() });
 
@@ -173,6 +175,84 @@ export default function(db, options = {}) {
             resolve(rows || []);
         });
     });
+
+    const normalizeInventoryKey = (row = {}) => {
+        const setCode = (row.setCode || '').toUpperCase();
+        const number = String(row.collectorNumber || '').trim();
+        const foil = String(row.foilType || 'normal').toLowerCase();
+        const condition = String(row.condition || 'NM').toUpperCase();
+        const scryfall = (row.scryfallId || '').toLowerCase();
+        const tcgId = row.tcgplayerId ? String(row.tcgplayerId) : '';
+        return [setCode, number, foil, condition, scryfall, tcgId].join('|');
+    };
+
+    const startDailyUpdate = () => {
+        if (dailyUpdateProcess?.proc && dailyUpdateProcess.proc.exitCode === null) {
+            return { alreadyRunning: true };
+        }
+        const scriptPath = path.resolve('./daily-update.js');
+        const child = spawn(process.execPath, [scriptPath], {
+            cwd: path.dirname(scriptPath),
+            env: { ...process.env },
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
+
+        dailyUpdateProcess = { proc: child, startedAt: new Date().toISOString() };
+
+        child.stdout.on('data', (chunk) => {
+            console.log(`[command DAILY_UPDATE stdout] ${chunk.toString().trimEnd()}`);
+        });
+        child.stderr.on('data', (chunk) => {
+            console.warn(`[command DAILY_UPDATE stderr] ${chunk.toString().trimEnd()}`);
+        });
+        child.on('close', (code) => {
+            console.log(`[command DAILY_UPDATE] exited with code ${code}`);
+            dailyUpdateProcess = null;
+        });
+
+        return { pid: child.pid, startedAt: dailyUpdateProcess.startedAt };
+    };
+
+    const consolidateInventoryDuplicates = async () => {
+        const rows = await dbAllAsync(`
+            SELECT id, name, setCode, collectorNumber, foilType, condition, pricePaid, quantity, scryfallId, tcgplayerId, createdAt
+            FROM inventory
+        `);
+        if (!rows.length) return { merged: 0 };
+        const groups = new Map();
+        rows.forEach((row) => {
+            const key = normalizeInventoryKey(row);
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(row);
+        });
+        let mergedCount = 0;
+        for (const [, group] of groups.entries()) {
+            if (group.length <= 1) continue;
+            mergedCount += group.length - 1;
+            // Keep the oldest row (createdAt) as the canonical record.
+            group.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+            const keeper = group[0];
+            const rest = group.slice(1);
+            const totalQuantity = group.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
+            const totalCost = group.reduce((sum, row) => sum + (Number(row.pricePaid) || 0) * (Number(row.quantity) || 0), 0);
+            const avgPricePaid = totalQuantity > 0 ? Number((totalCost / totalQuantity).toFixed(2)) : 0;
+            await new Promise((resolve, reject) => {
+                db.run(
+                    `UPDATE inventory SET quantity = ?, pricePaid = ? WHERE id = ?`,
+                    [totalQuantity, avgPricePaid, keeper.id],
+                    (err) => (err ? reject(err) : resolve())
+                );
+            });
+            if (rest.length) {
+                const idsToDelete = rest.map(r => r.id);
+                await new Promise((resolve, reject) => {
+                    const placeholders = idsToDelete.map(() => '?').join(',');
+                    db.run(`DELETE FROM inventory WHERE id IN (${placeholders})`, idsToDelete, (err) => (err ? reject(err) : resolve()));
+                });
+            }
+        }
+        return { merged: mergedCount };
+    };
 
     const normalizeIsoDate = (value) => {
         if (!value) return new Date().toISOString();
@@ -456,6 +536,27 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
         };
     };
 
+    router.post('/admin/command', express.json(), (req, res) => {
+        const command = (req.body?.command || '').toString().trim().toUpperCase();
+        if (!command) {
+            return res.status(400).json({ error: 'Command is required.' });
+        }
+
+        if (command === 'DAILY_UPDATE') {
+            const result = startDailyUpdate();
+            if (result.alreadyRunning) {
+                return res.status(409).json({ error: 'DAILY_UPDATE already running.' });
+            }
+            return res.json({
+                status: 'started',
+                pid: result.pid || null,
+                startedAt: result.startedAt
+            });
+        }
+
+        return res.status(404).json({ error: `Unknown command: ${command}` });
+    });
+
 
     router.post('/scrape-buylists', express.json(), async (req, res) => {
         if (!req.body) {
@@ -669,6 +770,151 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
         });
     });
 
+    // NEW: Lightweight portfolio summary + value history (60-day window)
+    router.get('/inventory/summary', async (_req, res) => {
+        try {
+            const inventoryRows = await dbAllAsync(`
+                SELECT id, name, setCode, collectorNumber, foilType, pricePaid, quantity,
+                       tcgMarketPrice, tcgLow, tcgLowPlusShipping, tcgplayerId, scryfallId
+                FROM inventory
+                WHERE quantity > 0
+            `);
+
+            if (!inventoryRows.length) {
+                return res.json({
+                    totals: {
+                        marketValue: 0,
+                        costBasis: 0,
+                        quantity: 0,
+                        avgArbPct: 0,
+                        avgArbDollar: 0,
+                        avgBuyPrice: 0,
+                        avgMarketPrice: 0
+                    },
+                    valueHistory: [],
+                    spotlights: []
+                });
+            }
+
+            const keyFor = (row) => `${(row.setCode || '').toUpperCase()}|${String(row.collectorNumber || '').trim()}`;
+            const uniqueKeys = [...new Set(inventoryRows.map(keyFor))];
+
+            let priceRows = [];
+            if (uniqueKeys.length) {
+                const placeholders = uniqueKeys.map(() => '?').join(',');
+                priceRows = await dbAllAsync(`
+                    SELECT c.setCode, c.number, ph.price_json
+                    FROM cards c
+                    JOIN price_history ph ON ph.uuid = c.uuid
+                    WHERE (c.setCode || '|' || c.number) IN (${placeholders})
+                `, uniqueKeys);
+            }
+
+            const priceMap = new Map();
+            for (const row of priceRows) {
+                const key = `${(row.setCode || '').toUpperCase()}|${String(row.number || '').trim()}`;
+                try {
+                    priceMap.set(key, JSON.parse(row.price_json));
+                } catch (error) {
+                    console.error('[inventory] summary price JSON parse error:', error.message);
+                }
+            }
+
+            const cutoff = new Date();
+            cutoff.setDate(cutoff.getDate() - 60);
+            const valueByDate = new Map();
+
+            let totalMarket = 0;
+            let costBasis = 0;
+            let quantity = 0;
+            let arbDollarSum = 0;
+
+            for (const row of inventoryRows) {
+                const qty = Number(row.quantity) || 0;
+                if (!qty) continue;
+                quantity += qty;
+                const itemCostBasis = (Number(row.pricePaid) || 0) * qty;
+                costBasis += itemCostBasis;
+
+                const priceJson = priceMap.get(keyFor(row));
+                const finish = (row.foilType || 'normal').toLowerCase();
+                const history = priceJson?.paper?.tcgplayer?.retail?.[finish] || priceJson?.paper?.tcgplayer?.retail?.normal || null;
+
+                let marketPrice = Number(row.tcgMarketPrice);
+                if (!Number.isFinite(marketPrice) || marketPrice <= 0) {
+                    marketPrice = Number(getLatestFromPriceHistory(history)) || 0;
+                }
+                const itemMarketTotal = marketPrice * qty;
+                totalMarket += itemMarketTotal;
+                arbDollarSum += (marketPrice - (Number(row.pricePaid) || 0)) * qty;
+
+                if (history) {
+                    for (const [dateStr, value] of Object.entries(history)) {
+                        const asDate = new Date(dateStr);
+                        if (Number.isNaN(asDate.getTime()) || asDate < cutoff) continue;
+                        const price = Number(value);
+                        if (!Number.isFinite(price) || price <= 0) continue;
+                        const iso = dateStr.slice(0, 10);
+                        const entry = valueByDate.get(iso) || { marketValue: 0 };
+                        entry.marketValue += price * qty;
+                        valueByDate.set(iso, entry);
+                    }
+                }
+            }
+
+            const valueHistory = [...valueByDate.entries()]
+                .sort((a, b) => new Date(a[0]) - new Date(b[0]))
+                .map(([date, values]) => ({
+                    date,
+                    marketValue: Number((values.marketValue || 0).toFixed(2)),
+                    costBasis: Number(costBasis.toFixed(2))
+                }));
+
+            const avgArbDollar = quantity > 0 ? Number((arbDollarSum / quantity).toFixed(2)) : 0;
+            const avgArbPct = costBasis > 0 ? Number(((totalMarket - costBasis) / costBasis * 100).toFixed(2)) : 0;
+            const avgBuyPrice = quantity > 0 ? Number((costBasis / quantity).toFixed(2)) : 0;
+            const avgMarketPrice = quantity > 0 ? Number((totalMarket / quantity).toFixed(2)) : 0;
+
+            const spotlights = [...inventoryRows]
+                .sort((a, b) => ((Number(b.tcgMarketPrice) || 0) * (Number(b.quantity) || 0)) - ((Number(a.tcgMarketPrice) || 0) * (Number(a.quantity) || 0)))
+                .slice(0, 12)
+                .map(row => ({
+                    id: row.id,
+                    name: row.name,
+                    setCode: row.setCode,
+                    collectorNumber: row.collectorNumber,
+                    foilType: row.foilType,
+                    quantity: row.quantity,
+                    tcgMarketPrice: row.tcgMarketPrice ?? null,
+                    pricePaid: row.pricePaid ?? null,
+                    tcgplayerId: row.tcgplayerId || null,
+                    scryfallId: row.scryfallId || null,
+                    imageUrl: row.tcgplayerId
+                        ? `https://tcgplayer-cdn.tcgplayer.com/product/${row.tcgplayerId}_in_1000x1000.jpg`
+                        : (row.scryfallId
+                            ? `https://cards.scryfall.io/normal/front/${row.scryfallId[0]}/${row.scryfallId[1]}/${row.scryfallId}.jpg`
+                            : null)
+                }));
+
+            res.json({
+                totals: {
+                    marketValue: Number(totalMarket.toFixed(2)),
+                    costBasis: Number(costBasis.toFixed(2)),
+                    quantity,
+                    avgArbPct,
+                    avgArbDollar,
+                    avgBuyPrice,
+                    avgMarketPrice
+                },
+                valueHistory,
+                spotlights
+            });
+        } catch (error) {
+            console.error('[inventory] summary error:', error);
+            res.status(500).json({ error: error.message || 'Failed to load inventory summary.' });
+        }
+    });
+
     router.get('/manapool/status', async (req, res) => {
         try {
             const status = await getManaPoolStatus(db);
@@ -865,23 +1111,67 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
     router.post('/inventory', express.json(), async (req, res) => {
         // Add 'condition' to the destructured properties
         const { name, setCode, collectorNumber, foilType, pricePaid, quantity, tcgplayerId, condition, scryfallId } = req.body;
-        const id = randomUUID();
+        const normalizedFoil = foilType || 'normal';
+        const normalizedCondition = (condition || 'NM').toUpperCase();
+        const normalizedQty = Math.max(0, Number(quantity) || 0);
+        const normalizedPricePaid = Number.isFinite(Number(pricePaid)) ? Number(pricePaid) : 0;
         let tcgMarketPrice = null;
         try {
-            tcgMarketPrice = await fetchTcgMarketPriceFromDb(db, { setCode, collectorNumber, foilType: foilType || 'normal' });
+            tcgMarketPrice = await fetchTcgMarketPriceFromDb(db, { setCode, collectorNumber, foilType: normalizedFoil });
         } catch (error) {
             console.error('[inventory] Failed to fetch tcgMarketPrice:', error.message);
         }
-        const sql = `INSERT INTO inventory (id, name, setCode, collectorNumber, foilType, pricePaid, quantity, tcgplayerId, condition, scryfallId, tcgMarketPrice)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-        const params = [id, name, setCode, collectorNumber, foilType, pricePaid, quantity, tcgplayerId, condition || 'NM', scryfallId, tcgMarketPrice];
-        db.run(sql, params, function(err) {
-            if (err) {
-              console.error("Failed to add inventory item:", err);
-              return res.status(400).json({ error: err.message });
+        try {
+            const existing = await dbGet(
+                `SELECT id, quantity, pricePaid FROM inventory 
+                 WHERE setCode = ? AND collectorNumber = ? AND foilType = ? AND condition = ? 
+                   AND LOWER(name) = LOWER(?) 
+                   AND (scryfallId = ? OR scryfallId IS NULL OR ? IS NULL)
+                   AND (tcgplayerId = ? OR tcgplayerId IS NULL OR ? IS NULL)
+                 LIMIT 1`,
+                [
+                    setCode,
+                    collectorNumber,
+                    normalizedFoil,
+                    normalizedCondition,
+                    name,
+                    scryfallId || null,
+                    scryfallId || null,
+                    tcgplayerId || null,
+                    tcgplayerId || null
+                ]
+            );
+
+            if (existing) {
+                const currentQty = Math.max(0, Number(existing.quantity) || 0);
+                const totalQty = currentQty + normalizedQty;
+                const weightedCost = (Number(existing.pricePaid) || 0) * currentQty + normalizedPricePaid * normalizedQty;
+                const avgPricePaid = totalQty > 0 ? Number((weightedCost / totalQty).toFixed(2)) : 0;
+                await new Promise((resolve, reject) => {
+                    db.run(
+                        `UPDATE inventory SET quantity = ?, pricePaid = ?, tcgMarketPrice = COALESCE(tcgMarketPrice, ?) WHERE id = ?`,
+                        [totalQty, avgPricePaid, tcgMarketPrice, existing.id],
+                        (err) => (err ? reject(err) : resolve())
+                    );
+                });
+                return res.status(200).json({ id: existing.id, merged: true, quantity: totalQty, pricePaid: avgPricePaid });
             }
-            res.status(201).json({ id: id });
-        });
+
+            const id = randomUUID();
+            const sql = `INSERT INTO inventory (id, name, setCode, collectorNumber, foilType, pricePaid, quantity, tcgplayerId, condition, scryfallId, tcgMarketPrice)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+            const params = [id, name, setCode, collectorNumber, normalizedFoil, normalizedPricePaid, normalizedQty, tcgplayerId, normalizedCondition, scryfallId, tcgMarketPrice];
+            db.run(sql, params, function(err) {
+                if (err) {
+                  console.error("Failed to add inventory item:", err);
+                  return res.status(400).json({ error: err.message });
+                }
+                res.status(201).json({ id });
+            });
+        } catch (error) {
+            console.error('[inventory] add/merge failed:', error);
+            res.status(500).json({ error: error.message || 'Failed to add inventory item.' });
+        }
     });
 
     // DELETE an item from inventory

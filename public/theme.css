@@ -1,25 +1,26 @@
 :root {
-    --bg-color: #040715;
-    --surface-color: rgba(10, 14, 30, 0.96);
-    --surface-alt: rgba(16, 21, 40, 0.9);
-    --surface-soft: rgba(148, 163, 184, 0.18);
-    --text-color: #f6f7ff;
-    --muted-color: #a0aec0;
-    --muted-strong: #dbe4ff;
-    --primary-color: #8b5cf6;
-    --primary-bright: #22d3ee;
+    --bg-color: #000000;
+    --surface-color: rgba(12, 12, 14, 0.98);
+    --surface-alt: rgba(18, 18, 22, 0.95);
+    --surface-soft: rgba(255, 255, 255, 0.06);
+    --text-color: #f0f0f0;
+    --muted-color: #8a919c;
+    --muted-strong: #c8cdd5;
+    --primary-color: #6d5cff;
+    --primary-bright: #00e5ff;
+    --accent-color: #00e5ff;
     --positive-color: #4ade80;
     --negative-color: #fb7185;
     --warning-color: #fcbf49;
     --danger-color: #fb7185;
-    --border-color: rgba(148, 163, 184, 0.35);
-    --card-shadow: 0 30px 60px rgba(2, 6, 23, 0.55);
-    --panel-glow: rgba(124, 58, 237, 0.32);
-    --transition-duration: 0.25s;
+    --border-color: rgba(255, 255, 255, 0.10);
+    --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    --transition-duration: 0.15s;
     --font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     --font-family-mono: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', monospace;
-    --button-gradient-start: #7c3aed;
-    --button-gradient-end: #0ea5e9;
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
 }
 
 *,
@@ -31,10 +32,7 @@
 body {
     margin: 0;
     min-height: 100vh;
-    background:
-        radial-gradient(circle at 3% 15%, rgba(124, 58, 237, 0.35), transparent 42%),
-        radial-gradient(circle at 80% 0%, rgba(34, 211, 238, 0.22), transparent 46%),
-        radial-gradient(120% 120% at 50% 0%, #0b1227 0%, #050812 60%, #02040a 100%);
+    background: #000;
     color: var(--text-color);
     font-family: var(--font-family-base);
     line-height: 1.6;
@@ -62,21 +60,11 @@ a:hover {
 
 .page-section {
     background: var(--surface-color);
-    border-radius: 24px;
-    border: 1px solid rgba(148, 163, 184, 0.15);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
     box-shadow: var(--card-shadow);
     padding: 24px;
     position: relative;
-    overflow: hidden;
-}
-
-.page-section::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(circle at top right, var(--panel-glow), transparent 55%);
-    pointer-events: none;
-    opacity: 0.65;
 }
 
 button {
@@ -98,12 +86,12 @@ button {
     gap: 8px;
     font-weight: 600;
     letter-spacing: 0.02em;
-    font-size: 0.95rem;
-    padding: 12px 22px;
-    border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 0.9rem;
+    padding: 10px 20px;
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
     cursor: pointer;
-    transition: transform 0.18s ease, box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+    transition: background var(--transition-duration) ease, border-color var(--transition-duration) ease, color var(--transition-duration) ease, opacity var(--transition-duration) ease;
     text-decoration: none;
     font-family: inherit;
 }
@@ -113,10 +101,9 @@ button {
 .view-button,
 .action-btn,
 .recent-open-button {
-    background: linear-gradient(135deg, var(--button-gradient-start), var(--button-gradient-end));
-    border-color: rgba(255, 255, 255, 0.12);
-    color: var(--text-color);
-    box-shadow: 0 18px 42px rgba(7, 12, 32, 0.55);
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: #fff;
 }
 
 .btn:hover,
@@ -124,38 +111,37 @@ button {
 .view-button:hover,
 .action-btn:hover,
 .recent-open-button:hover {
-    background: linear-gradient(135deg, var(--button-gradient-end), var(--primary-color));
-    transform: translateY(-2px);
-    box-shadow: 0 24px 50px rgba(7, 12, 32, 0.6);
+    background: #5a48e0;
+    border-color: #5a48e0;
 }
 
 .secondary-btn,
 .back-button,
 .ghost-btn {
-    background: rgba(148, 163, 184, 0.12);
-    border-color: rgba(148, 163, 184, 0.28);
+    background: transparent;
+    border-color: var(--border-color);
     color: var(--muted-strong);
-    box-shadow: 0 12px 30px rgba(5, 9, 20, 0.45);
 }
 
 .secondary-btn:hover,
 .back-button:hover,
 .ghost-btn:hover {
-    background: rgba(148, 163, 184, 0.22);
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.20);
     color: var(--text-color);
-    transform: translateY(-2px);
 }
 
 .danger-btn,
 .delete-btn {
-    background: linear-gradient(135deg, rgba(248, 113, 113, 0.85), rgba(220, 38, 38, 0.7));
-    border-color: rgba(248, 113, 113, 0.6);
-    color: #fff5f5;
+    background: rgba(248, 113, 113, 0.15);
+    border-color: rgba(248, 113, 113, 0.5);
+    color: var(--negative-color);
 }
 
 .danger-btn:hover,
 .delete-btn:hover {
-    background: linear-gradient(135deg, rgba(248, 113, 113, 1), rgba(185, 28, 28, 0.9));
+    background: rgba(248, 113, 113, 0.25);
+    border-color: rgba(248, 113, 113, 0.7);
     color: #fff;
 }
 
@@ -165,10 +151,8 @@ button {
 .view-button:disabled,
 .action-btn:disabled,
 .recent-open-button:disabled {
-    opacity: 0.55;
+    opacity: 0.4;
     cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
 }
 
 .btn:focus-visible,
@@ -180,8 +164,8 @@ button {
 .back-button:focus-visible,
 .action-btn:focus-visible,
 .recent-open-button:focus-visible {
-    outline: 2px solid var(--primary-bright);
-    outline-offset: 3px;
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
 }
 
 .input,
@@ -192,16 +176,15 @@ input[type="search"],
 input[type="number"],
 select,
 textarea {
-    background: rgba(6, 9, 20, 0.92);
+    background: rgba(8, 8, 10, 0.95);
     color: var(--text-color);
-    border: 1px solid rgba(148, 163, 184, 0.35);
-    border-radius: 14px;
-    padding: 12px 16px;
-    font-size: 1rem;
-    transition: border-color var(--transition-duration) ease, box-shadow var(--transition-duration) ease;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    font-size: 0.95rem;
+    transition: border-color var(--transition-duration) ease;
     width: 100%;
     font-family: inherit;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 30px rgba(3, 6, 17, 0.45);
 }
 
 .input:focus,
@@ -213,29 +196,27 @@ input[type="number"]:focus,
 select:focus,
 textarea:focus {
     outline: none;
-    border-color: rgba(139, 92, 246, 0.85);
-    box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.5);
+    border-color: var(--primary-color);
 }
 
 .input::placeholder,
 .search-input::placeholder,
 .filter-input::placeholder,
 textarea::placeholder {
-    color: rgba(148, 163, 184, 0.7);
+    color: rgba(138, 145, 156, 0.7);
 }
 
 .glass-card,
 .summary-box,
 .analysis-card {
-    border-radius: 24px;
-    border: 1px solid rgba(148, 163, 184, 0.25);
-    background: linear-gradient(145deg, rgba(13, 18, 35, 0.92), rgba(19, 27, 48, 0.82));
-    box-shadow: var(--card-shadow);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    background: var(--surface-color);
 }
 
 .summary-grid {
     display: flex;
-    gap: 24px;
+    gap: 16px;
     flex-wrap: wrap;
 }
 
@@ -244,53 +225,52 @@ textarea::placeholder {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    min-width: 210px;
-    padding: 18px 20px;
-    border-radius: 18px;
-    background: rgba(12, 19, 32, 0.75);
-    border: 1px solid rgba(95, 108, 153, 0.28);
+    min-width: 180px;
+    padding: 14px 16px;
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
 }
 
 .summary-item span,
 .stat-card span {
     color: var(--muted-color);
-    font-size: 0.82rem;
+    font-size: 0.78rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
 }
 
 .summary-item strong,
 .stat-card strong {
-    font-size: 1.5rem;
+    font-size: 1.4rem;
     font-weight: 700;
-    letter-spacing: 0.04em;
     color: var(--text-color);
 }
 
 .table-base {
     width: 100%;
     border-collapse: collapse;
-    background: rgba(12, 19, 32, 0.85);
-    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: var(--radius-md);
     overflow: hidden;
-    border: 1px solid rgba(95, 108, 153, 0.28);
-    font-size: 0.95rem;
+    border: 1px solid var(--border-color);
+    font-size: 0.9rem;
 }
 
 .table-base th,
 .table-base td {
-    padding: 14px 16px;
-    border-bottom: 1px solid rgba(95, 108, 153, 0.18);
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-color);
     text-align: left;
     color: var(--muted-strong);
 }
 
 .table-base th {
-    background: rgba(16, 24, 40, 0.9);
+    background: rgba(255, 255, 255, 0.04);
     color: var(--muted-color);
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    font-size: 0.78rem;
+    font-size: 0.75rem;
 }
 
 .table-base tr:last-child td {
@@ -302,34 +282,34 @@ textarea::placeholder {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 12px;
+    padding: 4px 10px;
     border-radius: 999px;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--muted-strong);
-    background: rgba(148, 163, 184, 0.16);
-    border: 1px solid rgba(148, 163, 184, 0.3);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-color);
 }
 
 .tag--success,
 .status-pill.success {
-    background: rgba(74, 222, 128, 0.16);
-    border-color: rgba(74, 222, 128, 0.28);
+    background: rgba(74, 222, 128, 0.12);
+    border-color: rgba(74, 222, 128, 0.3);
     color: var(--positive-color);
 }
 
 .tag--warning,
 .status-pill.warning {
-    background: rgba(251, 191, 36, 0.16);
-    border-color: rgba(251, 191, 36, 0.28);
+    background: rgba(251, 191, 36, 0.12);
+    border-color: rgba(251, 191, 36, 0.3);
     color: var(--warning-color);
 }
 
 .tag--danger,
 .status-pill.danger {
-    background: rgba(248, 113, 113, 0.16);
-    border-color: rgba(248, 113, 113, 0.28);
+    background: rgba(248, 113, 113, 0.12);
+    border-color: rgba(248, 113, 113, 0.3);
     color: var(--danger-color);
 }
 
@@ -357,8 +337,8 @@ textarea::placeholder {
 #buylist-modal .buylist-modal-backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(3, 6, 16, 0.68);
-    backdrop-filter: blur(10px);
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(8px);
 }
 
 .modal-dialog,
@@ -372,10 +352,10 @@ textarea::placeholder {
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    border-radius: 24px;
+    border-radius: var(--radius-lg);
     background: var(--surface-color);
-    border: 1px solid rgba(95, 108, 153, 0.28);
-    box-shadow: 0 32px 64px rgba(5, 10, 22, 0.65);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
 }
 
 .modal-close-btn,
@@ -385,18 +365,24 @@ textarea::placeholder {
     top: 12px;
     right: 16px;
     background: transparent;
-    border: none;
-    color: rgba(226, 232, 240, 0.88);
-    font-size: 1.6rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--muted-strong);
+    font-size: 1.4rem;
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
     cursor: pointer;
     line-height: 1;
-    transition: color var(--transition-duration) ease;
+    transition: color var(--transition-duration) ease, border-color var(--transition-duration) ease;
 }
 
 .modal-close-btn:hover,
 .recent-modal-close:hover,
 .export-modal__close:hover {
-    color: var(--primary-color);
+    color: var(--text-color);
+    border-color: rgba(255, 255, 255, 0.25);
 }
 
 .list-header,
@@ -405,30 +391,29 @@ textarea::placeholder {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 18px;
+    gap: 16px;
 }
 
 .toolbar {
-    background: rgba(12, 19, 32, 0.82);
-    border-radius: 20px;
-    border: 1px solid rgba(95, 108, 153, 0.26);
-    box-shadow: var(--card-shadow);
-    padding: 18px 22px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    padding: 14px 18px;
     flex-wrap: wrap;
 }
 
 .sort-controls {
     display: inline-flex;
     align-items: center;
-    gap: 10px;
-    background: rgba(12, 20, 36, 0.7);
-    border-radius: 999px;
-    padding: 6px;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: var(--radius-sm);
+    padding: 4px;
 }
 
 .sort-controls span {
     color: var(--muted-color);
-    font-size: 0.82rem;
+    font-size: 0.78rem;
     padding: 0 8px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -443,7 +428,7 @@ textarea::placeholder {
     content: '';
     position: absolute;
     inset: 0;
-    background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.12) 50%, transparent 100%);
+    background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.06) 50%, transparent 100%);
     animation: skeleton-shimmer 1.8s infinite;
 }
 
@@ -453,18 +438,22 @@ textarea::placeholder {
 }
 
 ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
 }
 
 ::-webkit-scrollbar-thumb {
-    background: rgba(96, 165, 250, 0.22);
+    background: rgba(255, 255, 255, 0.12);
     border-radius: 999px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
 }
 
 @media (max-width: 960px) {
     body {
-        padding: 20px;
+        padding: 16px;
     }
 
     .toolbar {
@@ -479,22 +468,24 @@ textarea::placeholder {
 
 @media (max-width: 600px) {
     body {
-        padding: 16px;
+        padding: 12px;
     }
 
     .toolbar {
-        padding: 16px 18px;
+        padding: 12px 14px;
     }
 
     .page-section {
-        padding: 18px;
+        padding: 16px;
     }
 
     .summary-grid {
-        gap: 16px;
+        gap: 12px;
     }
 }
-\r\n\r\n.buylist-modal {
+
+
+.buylist-modal {
     position: fixed;
     inset: 0;
     display: flex;
@@ -507,21 +498,21 @@ textarea::placeholder {
 .buylist-modal-backdrop {
     position: absolute;
     inset: 0;
-    background: rgba(0, 0, 0, 0.7);
+    background: rgba(0, 0, 0, 0.8);
 }
 
 .buylist-modal-dialog {
     position: relative;
-    background-color: #242424;
+    background-color: var(--surface-color);
     color: var(--text-color);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
+    border-radius: var(--radius-lg);
     width: min(960px, 100%);
     max-height: calc(100vh - 120px);
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.65);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
 }
 
 .buylist-modal-header {
@@ -535,28 +526,30 @@ textarea::placeholder {
 
 .buylist-modal-header h2 {
     margin: 0;
-    font-size: 1.35rem;
+    font-size: 1.3rem;
 }
 
 .buylist-modal-subtitle {
     margin: 4px 0 0;
-    color: #9aa1ad;
+    color: var(--muted-color);
     font-size: 0.9rem;
 }
 
 .modal-close-btn {
     background: none;
-    border: none;
-    color: var(--text-color);
-    font-size: 1.75rem;
+    border: 1px solid var(--border-color);
+    color: var(--muted-strong);
+    font-size: 1.4rem;
     line-height: 1;
     cursor: pointer;
     padding: 4px 8px;
-    transition: color 0.2s ease;
+    border-radius: var(--radius-sm);
+    transition: color var(--transition-duration) ease, border-color var(--transition-duration) ease;
 }
 
 .modal-close-btn:hover {
-    color: var(--primary-color);
+    color: var(--text-color);
+    border-color: rgba(255, 255, 255, 0.25);
 }
 
 .buylist-modal-controls {
@@ -569,26 +562,24 @@ textarea::placeholder {
 }
 
 .primary-btn {
-    background-color: var(--primary-color);
-    color: var(--bg-color);
-    border: none;
-    border-radius: 20px;
+    background: var(--primary-color);
+    color: #fff;
+    border: 1px solid var(--primary-color);
+    border-radius: var(--radius-sm);
     font-weight: 600;
     padding: 10px 20px;
     cursor: pointer;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    transition: background var(--transition-duration) ease, border-color var(--transition-duration) ease;
 }
 
 .primary-btn:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 8px 16px rgba(79, 209, 197, 0.25);
+    background: #5a48e0;
+    border-color: #5a48e0;
 }
 
 .primary-btn:disabled {
-    opacity: 0.6;
+    opacity: 0.4;
     cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
 }
 
 .buylist-progress {
@@ -604,22 +595,22 @@ textarea::placeholder {
 
 .buylist-progress-bar-container {
     width: 160px;
-    height: 8px;
-    background-color: #3a3a3a;
-    border-radius: 4px;
+    height: 6px;
+    background-color: rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
     overflow: hidden;
 }
 
 .buylist-progress-fill {
     height: 100%;
     width: 0%;
-    background: var(--primary-color);
+    background: var(--accent-color);
     transition: width 0.25s ease;
 }
 
 .buylist-progress span {
     font-size: 0.85rem;
-    color: #9aa1ad;
+    color: var(--muted-color);
 }
 
 .buylist-slider-group,
@@ -628,7 +619,7 @@ textarea::placeholder {
     flex-direction: column;
     gap: 6px;
     min-width: 160px;
-    color: #9aa1ad;
+    color: var(--muted-color);
     font-size: 0.85rem;
 }
 
@@ -649,10 +640,10 @@ textarea::placeholder {
 }
 
 #buylist-sort-select {
-    background-color: #1c1c1c;
+    background-color: rgba(8, 8, 10, 0.95);
     color: var(--text-color);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     padding: 8px 10px;
 }
 
@@ -665,7 +656,7 @@ textarea::placeholder {
 }
 
 .buylist-empty-state {
-    color: #9aa1ad;
+    color: var(--muted-color);
     font-size: 0.95rem;
     margin: 24px auto;
     text-align: center;
@@ -676,22 +667,22 @@ textarea::placeholder {
     gap: 1rem;
     padding: 1rem;
     border: 1px solid var(--border-color);
-    border-radius: 10px;
-    background-color: rgba(255, 255, 255, 0.04);
-    transition: background-color 0.2s ease;
+    border-radius: var(--radius-md);
+    background-color: rgba(255, 255, 255, 0.02);
+    transition: background-color 0.15s ease;
     flex-wrap: wrap;
 }
 
 .buylist-modal .analysis-item.scraping {
-    background-color: rgba(79, 209, 197, 0.12);
+    background-color: rgba(0, 229, 255, 0.08);
 }
 
 .buylist-modal .item-image {
     width: 90px;
     height: auto;
     object-fit: cover;
-    border-radius: 6px;
-    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 .buylist-modal .item-details {
@@ -726,11 +717,11 @@ textarea::placeholder {
 }
 
 .buylist-modal .price-table-container th {
-    background-color: rgba(255, 255, 255, 0.05);
-    color: #9aa1ad;
+    background-color: rgba(255, 255, 255, 0.04);
+    color: var(--muted-color);
     font-weight: 600;
     text-transform: uppercase;
-    font-size: 0.75rem;
+    font-size: 0.72rem;
 }
 
 .buylist-modal .price-table-container td {
@@ -743,32 +734,32 @@ textarea::placeholder {
 }
 
 .buylist-modal td.profitable {
-    background-color: rgba(47, 133, 90, 0.22);
-    color: #68d391;
+    background-color: rgba(74, 222, 128, 0.12);
+    color: var(--positive-color);
     font-weight: 600;
 }
 
 .buylist-modal td.warning {
-    background-color: rgba(229, 155, 19, 0.18);
-    color: #f6ad55;
+    background-color: rgba(251, 191, 36, 0.12);
+    color: var(--warning-color);
     font-weight: 600;
 }
 
 .buylist-modal td.loss {
-    background-color: rgba(197, 48, 48, 0.2);
-    color: #f56565;
+    background-color: rgba(248, 113, 113, 0.12);
+    color: var(--negative-color);
     font-weight: 600;
 }
 
 .buylist-modal td.price-hoverable {
     cursor: pointer;
-    transition: color 0.18s ease, text-decoration 0.18s ease;
+    transition: color 0.15s ease;
     position: relative;
 }
 
 .buylist-modal td.price-hoverable:hover,
 .buylist-modal td.price-hoverable:focus {
-    color: #60a5fa !important;
+    color: var(--accent-color) !important;
     text-decoration: underline;
 }
 
@@ -778,14 +769,14 @@ textarea::placeholder {
     min-width: 180px;
     max-width: 220px;
     padding: 10px 12px;
-    background: rgba(15, 23, 42, 0.95);
-    color: #e2e8f0;
-    border-radius: 10px;
-    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.45);
-    border: 1px solid rgba(96, 165, 250, 0.35);
+    background: rgba(8, 8, 10, 0.98);
+    color: var(--text-color);
+    border-radius: var(--radius-md);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    border: 1px solid var(--border-color);
     pointer-events: none;
     opacity: 0;
-    transform: translate(-50%, -12px);
+    transform: translate(-50%, -8px);
     transition: opacity 0.12s ease;
     font-size: 0.8rem;
     line-height: 1.4;
@@ -798,7 +789,7 @@ textarea::placeholder {
 .buylist-tooltip .tooltip-title {
     font-weight: 600;
     margin-bottom: 6px;
-    color: #93c5fd;
+    color: var(--accent-color);
 }
 
 .buylist-tooltip .tooltip-row {
@@ -815,7 +806,7 @@ textarea::placeholder {
     border-top: 1px solid var(--border-color);
     padding: 12px 24px 20px;
     font-size: 0.8rem;
-    color: #9aa1ad;
+    color: var(--muted-color);
 }
 
 .buylist-snapshot-status {
@@ -843,7 +834,7 @@ textarea::placeholder {
 }
 
 .buylist-modal .item-details .item-header span {
-    color: #9aa1ad;
+    color: var(--muted-color);
     font-weight: 400;
     margin-left: 6px;
     font-size: 0.85rem;
@@ -889,7 +880,7 @@ textarea::placeholder {
 .buylist-message-compose {
     background: var(--surface-color);
     border: 1px solid var(--border-color);
-    border-radius: 16px;
+    border-radius: var(--radius-md);
     padding: 14px;
 }
 
@@ -903,7 +894,7 @@ textarea::placeholder {
 .pill {
     padding: 4px 10px;
     border-radius: 999px;
-    background: rgba(148, 163, 184, 0.18);
+    background: rgba(255, 255, 255, 0.06);
     color: var(--text-color);
     font-size: 0.85rem;
     border: 1px solid var(--border-color);
@@ -923,9 +914,9 @@ textarea::placeholder {
     grid-template-columns: auto 1fr;
     gap: 10px;
     padding: 10px 12px;
-    border: 1px solid rgba(148, 163, 184, 0.2);
-    border-radius: 12px;
-    background: linear-gradient(145deg, rgba(124, 58, 237, 0.08), rgba(34, 211, 238, 0.05));
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .buylist-message-row input[type="checkbox"] {
@@ -960,7 +951,7 @@ textarea::placeholder {
     background: rgba(255, 255, 255, 0.02);
     color: var(--text-color);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
+    border-radius: var(--radius-sm);
     padding: 10px;
     resize: vertical;
     font-family: var(--font-family-base);
@@ -982,7 +973,7 @@ textarea::placeholder {
     text-align: center;
     color: var(--muted-color);
     border: 1px dashed var(--border-color);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
 }
 
 @media (max-width: 768px) {
@@ -1036,5 +1027,3 @@ textarea::placeholder {
         max-height: 320px;
     }
 }
-
-

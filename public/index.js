@@ -340,3 +340,156 @@ if (recentModal) {
 }
 
 refreshShippingAlert();
+
+// --- Keyboard command console (toggle with the ` key) ---
+(function initCommandConsole() {
+    const COMMANDS = {
+        DAILY_UPDATE: {
+            description: 'Run the daily data refresh pipeline immediately.',
+            handler: async (args, ctx) => {
+                ctx.write('Starting DAILY_UPDATE...');
+                const response = await fetch('/api/admin/command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command: 'DAILY_UPDATE', args })
+                });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw new Error(payload.error || `Request failed (${response.status})`);
+                }
+                const pidInfo = payload.pid ? ` (pid ${payload.pid})` : '';
+                ctx.write(`DAILY_UPDATE ${payload.status || 'started'}${pidInfo}. Progress will appear in Discord #console.`);
+                if (payload.startedAt) {
+                    ctx.write(`Started at ${payload.startedAt}.`);
+                }
+            }
+        }
+    };
+
+    const consoleEl = document.createElement('div');
+    consoleEl.className = 'cmd-console';
+    consoleEl.setAttribute('role', 'region');
+    consoleEl.setAttribute('aria-label', 'Powernine command console');
+
+    const header = document.createElement('div');
+    header.className = 'cmd-console__header';
+    header.innerHTML = '<span class="cmd-console__badge">`</span><span>Powernine Console</span>';
+    consoleEl.appendChild(header);
+
+    const logEl = document.createElement('div');
+    logEl.className = 'cmd-console__log';
+    consoleEl.appendChild(logEl);
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'cmd-console__input';
+    input.placeholder = 'Type a command (e.g. DAILY_UPDATE) and press Enter...';
+    consoleEl.appendChild(input);
+
+    const hint = document.createElement('div');
+    hint.className = 'cmd-console__hint';
+    hint.textContent = 'Press ` (grave) to toggle • Up/Down for history • Available: DAILY_UPDATE';
+    consoleEl.appendChild(hint);
+
+    document.body.appendChild(consoleEl);
+
+    const state = {
+        open: false,
+        history: [],
+        historyIndex: -1
+    };
+
+    const writeLine = (text) => {
+        const line = document.createElement('div');
+        line.className = 'cmd-console__line';
+        line.textContent = text;
+        logEl.appendChild(line);
+        logEl.scrollTop = logEl.scrollHeight;
+    };
+
+    const setOpen = (nextOpen) => {
+        state.open = nextOpen;
+        consoleEl.classList.toggle('open', nextOpen);
+        if (nextOpen) {
+            input.focus();
+        }
+    };
+
+    const toggle = () => setOpen(!state.open);
+
+    const executeCommand = async (rawInput) => {
+        const trimmed = (rawInput || '').trim();
+        if (!trimmed) return;
+
+        state.history.push(trimmed);
+        state.historyIndex = state.history.length;
+
+        const [cmd, ...args] = trimmed.split(/\s+/);
+        const upper = cmd.toUpperCase();
+
+        writeLine(`> ${trimmed}`);
+
+        const entry = COMMANDS[upper];
+        if (!entry) {
+            writeLine(`Unknown command: ${upper}`);
+            return;
+        }
+
+        try {
+            await entry.handler(args, { write: writeLine });
+        } catch (err) {
+            writeLine(`Error: ${err.message || err}`);
+        }
+    };
+
+    input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            executeCommand(input.value);
+            input.value = '';
+            return;
+        }
+
+        if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            if (state.historyIndex > 0) {
+                state.historyIndex -= 1;
+                input.value = state.history[state.historyIndex] || '';
+            }
+            return;
+        }
+
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            if (state.historyIndex < state.history.length - 1) {
+                state.historyIndex += 1;
+                input.value = state.history[state.historyIndex] || '';
+            } else {
+                state.historyIndex = state.history.length;
+                input.value = '';
+            }
+        }
+    });
+
+    const shouldIgnoreToggle = (target) => {
+        if (!target) return false;
+        const tag = target.tagName;
+        if (!tag) return false;
+        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return true;
+        if (target.isContentEditable) return true;
+        return false;
+    };
+
+    document.addEventListener('keydown', (event) => {
+        if (event.code === 'Backquote' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+            if (shouldIgnoreToggle(event.target)) return;
+            event.preventDefault();
+            toggle();
+        }
+        if (event.key === 'Escape' && state.open) {
+            setOpen(false);
+        }
+    });
+
+    writeLine('Powernine console ready. Press ` to toggle. Commands: ' + Object.keys(COMMANDS).join(', '));
+})();

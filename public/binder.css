@@ -1,7 +1,7 @@
 body {
-    background-color: var(--bg-color);
+    background-color: #000;
     color: var(--text-color);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-family: var(--font-family-base);
     margin: 0;
     padding: 20px;
     display: flex;
@@ -15,7 +15,7 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 24px;
+    margin-bottom: 20px;
 }
 
 h1 {
@@ -24,43 +24,44 @@ h1 {
 
 .header-controls {
     display: flex;
-    gap: 16px;
+    gap: 12px;
 }
 
 .view-button, .back-button {
-    color: var(--primary-color);
+    color: var(--text-color);
     text-decoration: none;
     font-weight: 600;
     padding: 8px 16px;
-    border: 1px solid var(--primary-color);
-    border-radius: 20px;
-    transition: background-color 0.2s, color 0.2s;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    transition: background var(--transition-duration), border-color var(--transition-duration);
     white-space: nowrap;
 }
 
 .view-button:hover, .back-button:hover {
-    background-color: var(--primary-color);
-    color: var(--bg-color);
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.20);
 }
 
 .binder-layout {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 20px;
+    gap: 16px;
     width: 100%;
     max-width: 1200px;
     margin: auto;
 }
 
 .binder-page {
-    background-color: var(--binder-bg);
-    border-radius: 15px;
-    padding: 20px;
+    background-color: var(--surface-color);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    padding: 16px;
     box-sizing: border-box;
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     grid-template-rows: repeat(3, 1fr);
-    gap: 15px;
+    gap: 12px;
     aspect-ratio: 0.75 / 1;
 }
 
@@ -72,14 +73,12 @@ h1 {
     width: 100%;
     height: 100%;
     object-fit: cover;
-    border-radius: 5%;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.4);
-    transition: transform 0.2s ease-out, box-shadow 0.2s;
+    border-radius: var(--radius-sm);
+    transition: transform 0.2s ease-out;
 }
 
 .card-image:hover {
-    transform: scale(1.05) rotate(1deg);
-    box-shadow: 0 8px 25px rgba(79, 209, 197, 0.2);
+    transform: scale(1.03);
     cursor: pointer;
 }
 
@@ -91,33 +90,32 @@ h1 {
 .navigation-controls {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 14px;
 }
 
 .navigation-controls button {
-    background-color: var(--surface-color);
+    background-color: transparent;
     color: var(--text-color);
-    border: 1px solid var(--primary-color);
-    border-radius: 8px;
-    padding: 10px 20px;
-    font-size: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 8px 18px;
+    font-size: 0.95rem;
     font-weight: 600;
     cursor: pointer;
-    transition: background-color 0.2s;
+    transition: background var(--transition-duration), border-color var(--transition-duration);
 }
 
 .navigation-controls button:hover:not(:disabled) {
-    background-color: var(--primary-color);
-    color: var(--bg-color);
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.20);
 }
 
 .navigation-controls button:disabled {
-    opacity: 0.4;
+    opacity: 0.3;
     cursor: not-allowed;
 }
 
-/* --- MODAL STYLES --- */
-
+/* Modal */
 .modal-overlay {
     position: fixed;
     top: 0;
@@ -130,7 +128,7 @@ h1 {
     align-items: center;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.3s ease;
+    transition: opacity 0.2s ease;
     z-index: 1000;
 }
 
@@ -141,15 +139,16 @@ h1 {
 
 .modal-content {
     background-color: var(--surface-color);
-    padding: 24px;
-    border-radius: 16px;
+    padding: 22px;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
     display: flex;
-    gap: 24px;
+    gap: 20px;
     max-width: 90vw;
     max-height: 90vh;
     align-items: center;
-    transform: scale(0.95);
-    transition: transform 0.3s ease;
+    transform: scale(0.97);
+    transition: transform 0.2s ease;
 }
 
 .modal-overlay.active .modal-content {
@@ -159,54 +158,53 @@ h1 {
 #modal-image {
     height: 70vh;
     max-height: 500px;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
 }
 
 .modal-info {
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    min-width: 250px;
+    gap: 14px;
+    min-width: 240px;
 }
 
 .modal-info h3 {
-    font-size: 1.5rem;
+    font-size: 1.4rem;
     margin: 0;
     color: white;
 }
 
 .modal-quantity-box,
 .modal-price-box {
-    background-color: var(--bg-color);
-    padding: 12px 16px;
-    border-radius: 8px;
+    background-color: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+    padding: 10px 14px;
+    border-radius: var(--radius-md);
 }
 
 .modal-quantity-box span,
 .modal-price-box span {
-    font-size: 0.9em;
+    font-size: 0.85em;
     color: var(--muted-color);
     display: block;
 }
 
 .modal-quantity-box strong,
 .modal-price-box strong {
-    font-size: 2rem;
+    font-size: 1.8rem;
     color: var(--primary-color);
 }
 
 .list-link {
     color: var(--muted-color);
     text-decoration: none;
-    font-size: 0.9em;
-    transition: color 0.2s;
+    font-size: 0.88em;
+    transition: color var(--transition-duration);
 }
 
 .list-link:hover {
     color: var(--primary-color);
 }
-
-/* --- RESPONSIVE STYLES --- */
 
 @media (max-width: 900px) {
     .binder-layout {
@@ -214,14 +212,14 @@ h1 {
     }
     .header {
         flex-direction: column;
-        gap: 16px;
+        gap: 14px;
     }
 }
 
 @media (max-width: 768px) {
     .modal-content {
         flex-direction: column;
-        padding: 16px;
+        padding: 14px;
     }
     #modal-image {
         height: auto;
@@ -233,15 +231,19 @@ h1 {
         text-align: center;
     }
 }
+
 .close-modal-button {
-    background-color: var(--surface-color);
-    color: var(--text-color);
-    border: 1px solid red;
-    border-radius: 8px;
-    padding: 10px 20px;
-    font-size: 1rem;
-    color:red;
+    background-color: transparent;
+    color: var(--negative-color);
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    border-radius: var(--radius-sm);
+    padding: 8px 18px;
+    font-size: 0.95rem;
     font-weight: 600;
     cursor: pointer;
-    transition: background-color 0.2s;
+    transition: background var(--transition-duration);
+}
+
+.close-modal-button:hover {
+    background: rgba(248, 113, 113, 0.1);
 }

@@ -363,24 +363,37 @@ const getInventoryRowsByIds = (db, ids = []) => new Promise((resolve, reject) =>
     });
 });
 
-const extractTcgplayerId = (cardData = {}) => {
-    if (cardData?.tcgplayer_id) return cardData.tcgplayer_id;
+const extractTcgplayerId = (cardData = {}, options = {}) => {
+    const finish = String(options.finish || options.foilType || '').toLowerCase();
+    const preferEtched = finish.includes('etch');
+
+    const direct = cardData?.tcgplayer_id;
+    const etched = cardData?.tcgplayer_etched_id;
+
+    if (preferEtched && etched) return etched;
+    if (direct) return direct;
+    if (etched) return etched;
+
     if (Array.isArray(cardData?.card_faces)) {
         for (const face of cardData.card_faces) {
-            if (face?.tcgplayer_id) return face.tcgplayer_id;
+            const faceDirect = face?.tcgplayer_id;
+            const faceEtched = face?.tcgplayer_etched_id;
+            if (preferEtched && faceEtched) return faceEtched;
+            if (faceDirect) return faceDirect;
+            if (faceEtched) return faceEtched;
         }
     }
     return null;
 };
 
-const fetchTcgplayerIdFromScryfall = async (scryfallId, index = 0) => {
+const fetchTcgplayerIdFromScryfall = async (scryfallId, index = 0, options = {}) => {
     if (!isUuid(scryfallId)) return null;
     if (index > 0) {
         await delay(SCRYFALL_VALIDATION_DELAY_MS);
     }
     try {
         const response = await axios.get(`${SCRYFALL_API_BASE}/${encodeURIComponent(scryfallId)}`);
-        return extractTcgplayerId(response.data);
+        return extractTcgplayerId(response.data, options);
     } catch (error) {
         console.warn('[scryfall] tcgplayer lookup failed:', scryfallId, error.response?.status || error.message);
         return null;
@@ -487,17 +500,23 @@ export const fetchVariantFloorsForInventory = async (items = [], options = {}) =
                             foilType
                         }]
                         : [];
-                    const candidates = listings.length ? listings : fallbackListing;
-                    if (!candidates.length) continue;
-                    // Take the cheapest candidate
-                    candidates.sort((a, b) => Number(a.price || Infinity) - Number(b.price || Infinity));
-                    const best = candidates[0];
-                    if (!Number.isFinite(best.price) || best.price <= 0) continue;
-                    const priceCents = Math.round(best.price * 100);
+                    const normalizedCandidates = (listings.length ? listings : fallbackListing)
+                        .map((entry) => {
+                            const priceValue = Number(entry?.price);
+                            return {
+                                ...entry,
+                                priceCents: Number.isFinite(priceValue) ? Math.round(priceValue * 100) : null
+                            };
+                        })
+                        .filter((entry) => Number.isFinite(entry.priceCents) && entry.priceCents > 0);
+                    if (!normalizedCandidates.length) continue;
+                    normalizedCandidates.sort((a, b) => a.priceCents - b.priceCents);
+                    const best = normalizedCandidates[0];
                     const normalizedSeller = normalizeSellerNameValue(best.sellerName);
                     const isSelf = Boolean(normalizedSeller && SELF_SELLER_NAME && normalizedSeller === SELF_SELLER_NAME);
                     result.set(key, {
-                        priceCents,
+                        priceCents: best.priceCents,
+                        floorPriceCents: best.priceCents,
                         available: null,
                         url,
                         sellerName: normalizedSeller || (best.sellerName ? best.sellerName.trim().toLowerCase() : null),
@@ -537,10 +556,11 @@ const buildPushPayload = async (items = [], options = {}) => {
 
     const payload = [];
     const contexts = [];
+    const entryIndexByKey = new Map();
     for (const item of candidates) {
         let tcgId = item.tcgplayerId && String(item.tcgplayerId).trim() !== '' ? item.tcgplayerId : null;
         if (!tcgId && item.scryfallId) {
-            tcgId = await fetchTcgplayerIdFromScryfall(item.scryfallId, lookupIndex);
+            tcgId = await fetchTcgplayerIdFromScryfall(item.scryfallId, lookupIndex, { finish: item.foilType });
             lookupIndex += 1;
         }
         if (!tcgId) {
@@ -557,7 +577,7 @@ const buildPushPayload = async (items = [], options = {}) => {
             priceBasis = 100;
         }
         const priceCents = Math.max(1, Math.round(priceBasis * 100));
-        payload.push({
+        const entry = {
             tcgplayer_id: Number(tcgId),
             language_id: LANGUAGE_ID,
             finish_id: FINISH_ID_MAP[item.foilType] || 'NF',
@@ -565,11 +585,36 @@ const buildPushPayload = async (items = [], options = {}) => {
             base_price_cents: priceCents,
             price_cents: priceCents,
             quantity: Math.max(0, Number(item.quantity) || 0)
-        });
-        contexts.push({
-            inventory: item,
+        };
+        const context = {
+            inventory: { ...item },
             variantKey: buildVariantKey(item)
-        });
+        };
+        const key = entryKey(entry);
+        if (entryIndexByKey.has(key)) {
+            const idx = entryIndexByKey.get(key);
+            const existingEntry = payload[idx];
+            const existingContext = contexts[idx];
+            const existingQty = Math.max(0, Number(existingEntry.quantity) || 0);
+            const incomingQty = Math.max(0, Number(entry.quantity) || 0);
+            const totalQty = existingQty + incomingQty;
+            if (totalQty > 0) {
+                const weighted = Math.round(
+                    ((existingEntry.price_cents || 0) * existingQty + (entry.price_cents || 0) * incomingQty) / totalQty
+                );
+                existingEntry.quantity = totalQty;
+                existingEntry.price_cents = Math.max(1, weighted || existingEntry.price_cents);
+                existingEntry.base_price_cents = existingEntry.price_cents;
+                existingContext.inventory.quantity = totalQty;
+                existingContext.combinedIds = Array.isArray(existingContext.combinedIds)
+                    ? existingContext.combinedIds.concat(item.id).filter(Boolean)
+                    : [existingContext.inventory.id, item.id].filter(Boolean);
+            }
+            continue;
+        }
+        entryIndexByKey.set(key, payload.length);
+        payload.push(entry);
+        contexts.push(context);
     }
 
     return { payload, contexts, missing: missingIds };
@@ -828,7 +873,15 @@ const pushInventoryRows = async (items = [], options = {}) => {
                 pair.context.__automationReason = 'No competitor price data';
                 return null;
             }
-            const effectiveCompetitorPrice = variant.priceCents;
+            const competitorFloor = Number.isFinite(variant.floorPriceCents) ? variant.floorPriceCents : null;
+            const effectiveCompetitorPrice = Math.min(
+                Number.isFinite(variant.priceCents) ? variant.priceCents : Infinity,
+                Number.isFinite(competitorFloor) ? competitorFloor : Infinity
+            );
+            if (!Number.isFinite(effectiveCompetitorPrice) || effectiveCompetitorPrice === Infinity) {
+                pair.context.__automationReason = 'No competitor price data';
+                return null;
+            }
             const competitorIsSelf = Boolean(
                 (variant.isSelf) ||
                 (variant.sellerName && SELF_SELLER_NAME && variant.sellerName === SELF_SELLER_NAME)

@@ -1,23 +1,23 @@
 .fin-shell {
     max-width: 1200px;
     margin: 0 auto;
-    padding: 40px 24px 64px;
+    padding: 32px 20px 64px;
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 20px;
 }
 
 .fin-header {
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
-    gap: 24px;
+    gap: 20px;
 }
 
 .fin-header .eyebrow {
     text-transform: uppercase;
     letter-spacing: 0.12em;
-    font-size: 0.74rem;
+    font-size: 0.72rem;
     color: var(--muted-color);
     margin-bottom: 4px;
 }
@@ -27,14 +27,14 @@
 }
 
 .fin-header .lede {
-    margin: 6px 0 0;
+    margin: 4px 0 0;
     color: var(--muted-strong);
     max-width: 600px;
 }
 
 .header-actions {
     display: flex;
-    gap: 12px;
+    gap: 10px;
     flex-wrap: wrap;
 }
 
@@ -44,13 +44,13 @@
 
 .card-purchase-menu {
     position: absolute;
-    top: calc(100% + 6px);
+    top: calc(100% + 4px);
     right: 0;
     background: var(--surface-color);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 14px;
-    padding: 6px;
-    box-shadow: 0 20px 40px rgba(3, 7, 18, 0.5);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 4px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
     display: flex;
     flex-direction: column;
     min-width: 200px;
@@ -66,40 +66,41 @@
     background: transparent;
     color: var(--text-color);
     text-align: left;
-    padding: 10px 12px;
-    border-radius: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
     font-weight: 600;
     cursor: pointer;
+    transition: background var(--transition-duration) ease;
 }
 
 .card-purchase-menu button:hover {
-    background: rgba(124, 58, 237, 0.15);
+    background: rgba(109, 92, 255, 0.1);
 }
 
 .fin-kpis {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px;
 }
 
 .fin-card {
     background: var(--surface-color);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 18px;
-    padding: 20px 24px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 18px 22px;
     box-shadow: var(--card-shadow);
 }
 
 .kpi-card h2 {
     margin: 4px 0;
-    font-size: 1.8rem;
+    font-size: 1.7rem;
 }
 
 .kpi-card .label {
     margin: 0;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     color: var(--muted-color);
 }
 
@@ -107,12 +108,12 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 16px;
-    height: 16px;
+    width: 15px;
+    height: 15px;
     border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.3);
     color: var(--muted-strong);
-    font-size: 0.7rem;
+    font-size: 0.68rem;
     margin-left: 6px;
     cursor: help;
 }
@@ -120,7 +121,7 @@
 .kpi-card .muted {
     margin: 0;
     color: var(--muted-strong);
-    font-size: 0.9rem;
+    font-size: 0.85rem;
 }
 
 .section-header {
@@ -128,45 +129,43 @@
     justify-content: space-between;
     align-items: center;
     gap: 12px;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
 }
 
 .section-actions {
     display: flex;
-    gap: 10px;
+    gap: 8px;
     flex-wrap: wrap;
 }
 
 .snapshot-list {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 10px;
 }
 
 .snapshot-card .snapshot-item {
-    padding: 12px 14px;
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
 }
 
 .snapshot-item h3 {
     margin: 0;
-    font-size: 1rem;
+    font-size: 0.95rem;
 }
 
 .snapshot-item .meta {
     margin: 4px 0 0;
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     color: var(--muted-strong);
 }
-
-/* snapshot delta removed per new spec */
 
 .fin-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 16px;
+    gap: 14px;
 }
 
 .category-list,
@@ -176,18 +175,18 @@
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
 }
 
 .category-list li,
 .recent-expense-list li {
-    padding: 12px 14px;
-    border-radius: 12px;
-    background: rgba(15, 23, 42, 0.92);
-    border: 1px solid rgba(148, 163, 184, 0.18);
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
     display: flex;
     justify-content: space-between;
-    gap: 12px;
+    gap: 10px;
     align-items: center;
 }
 
@@ -200,7 +199,7 @@
 }
 
 .recent-expense-list .meta {
-    font-size: 0.82rem;
+    font-size: 0.8rem;
     color: var(--muted-color);
 }
 
@@ -211,19 +210,19 @@
 .table-wrapper table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
 }
 
 .table-wrapper th,
 .table-wrapper td {
     padding: 10px 12px;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+    border-bottom: 1px solid var(--border-color);
     text-align: left;
 }
 
 .table-wrapper th {
     text-transform: uppercase;
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     letter-spacing: 0.08em;
     color: var(--muted-color);
 }
@@ -244,14 +243,14 @@
 }
 
 .ledger-actions .ghost-btn.danger {
-    border-color: rgba(248, 113, 113, 0.45);
+    border-color: rgba(248, 113, 113, 0.35);
     color: var(--danger-color);
 }
 
 .fin-modal {
     position: fixed;
     inset: 0;
-    background: rgba(5, 8, 18, 0.75);
+    background: rgba(0, 0, 0, 0.8);
     display: grid;
     place-items: center;
     z-index: 1000;
@@ -264,14 +263,14 @@
 .fin-modal-dialog {
     width: min(560px, 95vw);
     background: var(--surface-color);
-    border-radius: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    padding: 24px 28px;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    padding: 22px 26px;
     position: relative;
-    box-shadow: 0 24px 64px rgba(5, 8, 18, 0.6);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 14px;
     max-height: 92vh;
     overflow-y: auto;
 }
@@ -287,45 +286,55 @@
 
 .fin-modal-dialog::-webkit-scrollbar-thumb,
 .card-purchase-dialog::-webkit-scrollbar-thumb {
-    background: rgba(148, 163, 184, 0.35);
+    background: rgba(255, 255, 255, 0.12);
     border-radius: 999px;
 }
 
 .fin-modal-close {
     position: absolute;
     top: 12px;
-    right: 16px;
+    right: 14px;
     background: transparent;
-    border: none;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
     color: var(--muted-strong);
-    font-size: 1.6rem;
+    font-size: 1.3rem;
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
     cursor: pointer;
+    transition: border-color var(--transition-duration) ease;
+}
+
+.fin-modal-close:hover {
+    border-color: rgba(255, 255, 255, 0.25);
 }
 
 .card-purchase-dialog .card-purchase-search {
-    margin-bottom: 16px;
+    margin-bottom: 14px;
 }
 
 .card-purchase-dialog .card-purchase-search label {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    font-size: 0.9rem;
+    font-size: 0.88rem;
     color: var(--muted-strong);
 }
 
 .card-purchase-dialog .card-purchase-search small {
     color: var(--muted-color);
-    font-size: 0.8rem;
+    font-size: 0.78rem;
 }
 
 .card-purchase-dialog .card-purchase-search input {
-    background: rgba(14, 16, 26, 0.92);
+    background: rgba(8, 8, 10, 0.95);
     color: var(--text-color);
-    border: 1px solid rgba(148, 163, 184, 0.25);
-    border-radius: 10px;
-    padding: 10px 12px;
-    font-size: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    font-size: 0.95rem;
 }
 
 .card-purchase-search .search-input-wrapper {
@@ -334,20 +343,20 @@
 
 .printing-dropdown {
     position: absolute;
-    top: calc(100% + 6px);
+    top: calc(100% + 4px);
     left: 0;
     right: 0;
-    background: rgba(10, 14, 26, 0.98);
-    border: 1px solid rgba(148, 163, 184, 0.25);
-    border-radius: 14px;
-    box-shadow: 0 18px 36px rgba(2, 6, 23, 0.65);
+    background: rgba(8, 8, 10, 0.98);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
     max-height: 320px;
     overflow-y: auto;
     z-index: 30;
-    padding: 6px;
+    padding: 4px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
 }
 
 .printing-dropdown[hidden] {
@@ -356,7 +365,7 @@
 
 .printing-dropdown .dropdown-status {
     text-align: center;
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     color: var(--muted-color);
     padding: 10px 8px;
 }
@@ -374,14 +383,14 @@
     justify-content: space-between;
     align-items: center;
     gap: 10px;
-    padding: 9px 11px;
-    border-radius: 12px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
-    transition: background 0.2s ease;
+    transition: background var(--transition-duration) ease;
 }
 
 .printing-option:hover {
-    background: rgba(124, 58, 237, 0.18);
+    background: rgba(109, 92, 255, 0.1);
 }
 
 .printing-option__info {
@@ -402,14 +411,13 @@
 }
 
 .printing-option__thumb {
-    width: 62px;
+    width: 58px;
     height: auto;
     aspect-ratio: 63 / 88;
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     object-fit: cover;
-    background: rgba(30, 34, 46, 0.9);
-    box-shadow: 0 10px 18px rgba(0, 0, 0, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
 }
 
 .printing-option__thumb--placeholder {
@@ -417,16 +425,16 @@
     place-items: center;
     color: var(--muted-color);
     font-weight: 700;
-    font-size: 1.1rem;
+    font-size: 1rem;
 }
 
 .printing-option__meta {
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     color: var(--muted-color);
 }
 
 .printing-option__finish {
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     color: var(--muted-strong);
     white-space: nowrap;
 }
@@ -435,16 +443,16 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin: 20px 0 8px;
+    margin: 18px 0 8px;
 }
 
 .card-purchase-dialog .card-purchase-queue-header h3 {
     margin: 0;
-    font-size: 1.1rem;
+    font-size: 1.05rem;
 }
 
 .card-purchase-dialog .card-purchase-queue-header .queue-count {
-    font-size: 0.9rem;
+    font-size: 0.88rem;
     color: var(--muted-strong);
 }
 
@@ -459,25 +467,25 @@
     width: 100%;
     min-width: 900px;
     border-collapse: collapse;
-    font-size: 0.9rem;
+    font-size: 0.88rem;
 }
 
 .card-purchase-dialog .card-purchase-table th,
 .card-purchase-dialog .card-purchase-table td {
     padding: 10px 12px;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+    border-bottom: 1px solid var(--border-color);
     text-align: left;
 }
 
 .card-purchase-dialog .card-purchase-table input,
 .card-purchase-dialog .card-purchase-table select {
     width: 100%;
-    background: rgba(14, 16, 26, 0.92);
+    background: rgba(8, 8, 10, 0.95);
     color: var(--text-color);
-    border: 1px solid rgba(148, 163, 184, 0.25);
-    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
     padding: 6px 8px;
-    font-size: 0.9rem;
+    font-size: 0.88rem;
 }
 
 .card-purchase-dialog .card-purchase-table .total-cell {
@@ -485,10 +493,10 @@
 }
 
 .card-purchase-dialog .card-purchase-table .remove-btn {
-    border: 1px solid rgba(248, 113, 113, 0.45);
+    border: 1px solid rgba(248, 113, 113, 0.35);
     color: var(--danger-color);
     background: transparent;
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     padding: 4px 10px;
     cursor: pointer;
 }
@@ -501,7 +509,7 @@
 }
 
 .card-purchase-dialog .card-purchase-table .reference-meta {
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     color: var(--danger-color);
 }
 
@@ -510,25 +518,25 @@
 }
 
 .card-purchase-dialog .card-purchase-table .scrape-btn {
-    border: 1px dashed rgba(124, 58, 237, 0.45);
-    background: rgba(124, 58, 237, 0.12);
-    color: var(--primary-bright);
-    border-radius: 10px;
+    border: 1px dashed rgba(109, 92, 255, 0.35);
+    background: rgba(109, 92, 255, 0.08);
+    color: var(--accent-color);
+    border-radius: var(--radius-sm);
     padding: 5px 10px;
     cursor: pointer;
     font-weight: 600;
 }
 
 .card-purchase-dialog .card-purchase-table .scrape-btn:disabled {
-    opacity: 0.6;
+    opacity: 0.4;
     cursor: not-allowed;
 }
 
 .card-purchase-dialog .card-purchase-summary {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 16px;
-    margin-top: 18px;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px;
+    margin-top: 16px;
 }
 
 .card-purchase-dialog .card-purchase-summary label {
@@ -536,23 +544,23 @@
     flex-direction: column;
     gap: 6px;
     color: var(--muted-strong);
-    font-size: 0.9rem;
+    font-size: 0.88rem;
 }
 
 .card-purchase-dialog .card-purchase-summary input {
-    background: rgba(14, 16, 26, 0.92);
+    background: rgba(8, 8, 10, 0.95);
     color: var(--text-color);
-    border: 1px solid rgba(148, 163, 184, 0.25);
-    border-radius: 10px;
-    padding: 10px 12px;
-    font-size: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    font-size: 0.95rem;
 }
 
 .card-purchase-dialog .card-purchase-actions {
     grid-column: 1 / -1;
     display: flex;
     flex-wrap: wrap;
-    gap: 12px;
+    gap: 10px;
     justify-content: flex-end;
 }
 
@@ -560,35 +568,35 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    font-size: 0.9rem;
+    font-size: 0.88rem;
     color: var(--muted-strong);
 }
 
 #expense-form input,
 #expense-form textarea {
-    background: rgba(14, 16, 26, 0.92);
+    background: rgba(8, 8, 10, 0.95);
     color: var(--text-color);
-    border: 1px solid rgba(148, 163, 184, 0.25);
-    border-radius: 10px;
-    padding: 10px 12px;
-    font-size: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    font-size: 0.95rem;
 }
 
 .form-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 12px;
 }
 
 .modal-actions {
     display: flex;
-    gap: 12px;
+    gap: 10px;
     justify-content: flex-end;
 }
 
 .empty {
     color: var(--muted-color);
-    font-size: 0.9rem;
+    font-size: 0.88rem;
 }
 
 @media (max-width: 720px) {
@@ -603,7 +611,7 @@
 
     .fin-modal-dialog {
         width: 92vw;
-        padding: 20px;
+        padding: 18px;
     }
 
     .modal-actions {
@@ -631,22 +639,22 @@
     .card-purchase-dialog .card-purchase-table tbody {
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 10px;
     }
 
     .card-purchase-dialog .card-purchase-table tr {
         display: block;
-        border: 1px solid rgba(148, 163, 184, 0.18);
-        border-radius: 12px;
-        padding: 12px;
-        background: rgba(12, 15, 25, 0.9);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        padding: 10px;
+        background: rgba(255, 255, 255, 0.02);
     }
 
     .card-purchase-dialog .card-purchase-table td {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 8px 0;
+        padding: 6px 0;
         border-bottom: none;
     }
 
@@ -662,11 +670,11 @@
         color: var(--muted-color);
         margin-right: 12px;
         text-transform: uppercase;
-        font-size: 0.75rem;
+        font-size: 0.72rem;
     }
 
     .card-purchase-dialog .card-purchase-table td .meta {
-        font-size: 0.8rem;
+        font-size: 0.78rem;
         color: var(--muted-color);
     }
 
@@ -684,11 +692,9 @@
     }
 }
 
- / *   B u y l i s t   p r o g r e s s   * / 
- . b u y l i s t - p r o g r e s s { d i s p l a y : i n l i n e - f l e x ; a l i g n - i t e m s : c e n t e r ; g a p : 8 p x ; } 
- . b u y l i s t - p r o g r e s s . h i d d e n { d i s p l a y : n o n e ; } 
- . b u y l i s t - p r o g r e s s - b a r - c o n t a i n e r { w i d t h : 1 2 0 p x ; h e i g h t : 6 p x ; b a c k g r o u n d : # e 5 e 7 e b ; b o r d e r - r a d i u s : 6 p x ; o v e r f l o w : h i d d e n ; } 
- . b u y l i s t - p r o g r e s s - f i l l { w i d t h : 0 % ; h e i g h t : 1 0 0 % ; b a c k g r o u n d : l i n e a r - g r a d i e n t ( 9 0 d e g , # 6 3 6 6 f 1 , # 2 2 d 3 e e ) ; t r a n s i t i o n : w i d t h   . 3 s   e a s e ; } 
- . b u y l i s t - p r o g r e s s   s p a n { f o n t - s i z e : 1 2 p x ; c o l o r : # 6 b 7 2 8 0 ; } 
-  
- 
+/* Buylist progress */
+.buylist-progress { display: inline-flex; align-items: center; gap: 8px; }
+.buylist-progress.hidden { display: none; }
+.buylist-progress-bar-container { width: 120px; height: 6px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden; }
+.buylist-progress-fill { width: 0%; height: 100%; background: var(--accent-color); transition: width .3s ease; }
+.buylist-progress span { font-size: 12px; color: var(--muted-color); }

@@ -12,7 +12,7 @@ function setManaPoolWebhookUrl() {
 }
 
 async function log(message) {
-  await logDiscordConsole(message);
+  return logDiscordConsole(message);
 }
 
 async function sendManaPoolWebhook(message) {

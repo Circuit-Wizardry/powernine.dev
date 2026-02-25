@@ -45,6 +45,28 @@
         </section>
 
         <section class="mp-grid">
+            <article class="mp-card quick-sync-card" id="quick-sync-card">
+                <h2>Quick Sync</h2>
+                <p>One-click workflow: pull orders, push inventory, and start auto-pricing.</p>
+                <button type="button" class="primary-btn" id="quick-sync-btn">Run Full Sync</button>
+                <div id="quick-sync-progress" class="quick-sync-progress" hidden>
+                    <div class="quick-sync-steps">
+                        <div class="quick-sync-step" data-step="orders">
+                            <span class="step-indicator"></span>
+                            <span>Pull Orders</span>
+                        </div>
+                        <div class="quick-sync-step" data-step="push">
+                            <span class="step-indicator"></span>
+                            <span>Push Inventory</span>
+                        </div>
+                        <div class="quick-sync-step" data-step="auto">
+                            <span class="step-indicator"></span>
+                            <span>Enable Auto-Pricer</span>
+                        </div>
+                    </div>
+                </div>
+            </article>
+
             <article class="mp-card">
                 <h2>Inventory Sync</h2>
                 <p>Pull the latest inventory snapshot from ManaPool or push your local powernine.dev inventory upstream.</p>
@@ -235,30 +257,22 @@
                     <button type="button" class="ghost-btn" data-close-push>Close</button>
                 </div>
             </div>
-            <div class="push-progress" id="push-progress" hidden>
-                <div class="push-progress-bar">
-                    <div class="push-progress-bar-fill" id="push-progress-bar-fill"></div>
+            <div class="push-card push-progress-card">
+                <header>
+                    <div>
+                        <div class="card-title">Bulk Push Status</div>
+                        <div class="card-subtitle">Live updates with per-card results.</div>
+                    </div>
+                </header>
+                <div class="push-progress" id="push-progress" hidden>
+                    <div class="push-progress-bar">
+                        <div class="push-progress-bar-fill" id="push-progress-bar-fill"></div>
+                    </div>
+                    <p id="push-progress-text">Preparing push...</p>
+                    <ul class="push-progress-steps" id="push-progress-steps"></ul>
+                    <p class="push-progress-hint">Tip: click a card below to reveal the full error detail.</p>
                 </div>
-                <p id="push-progress-text">Preparing push...</p>
-                <ul class="push-progress-steps" id="push-progress-steps"></ul>
-            </div>
-            <div class="table-wrapper push-table">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Card</th>
-                            <th>Set</th>
-                            <th>Qty</th>
-                            <th>Local (TCG Market)</th>
-                            <th>Target Price</th>
-                            <th>Identifiers</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody id="push-inventory-table-body">
-                        <tr><td colspan="7" class="empty">Loading inventory...</td></tr>
-                    </tbody>
-                </table>
+                <div class="push-progress-empty" id="push-progress-empty">No push running yet.</div>
             </div>
         </div>
     </div>

@@ -12,7 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const exportModal = document.getElementById('export-modal');
     const exportModalText = document.getElementById('export-modal-text');
     const exportModalClose = document.getElementById('export-modal-close');
-    const filterInput = document.getElementById('inventory-filter');
+    const filterInput = document.getElementById('inventory-search');
     const filterMessage = document.getElementById('inventory-filter-empty');
     const openBuylistModalBtn = document.getElementById('open-buylist-modal');
     const manapoolExportBtn = document.getElementById('export-manapool-btn');
@@ -29,6 +29,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const editPriceInput = document.getElementById('edit-price');
     const editCancelBtn = document.getElementById('edit-cancel-btn');
     const editModalError = document.getElementById('edit-modal-error');
+    const statsContainer = document.getElementById('inventory-stats');
+    const chartCanvas = document.getElementById('inventory-value-chart');
+    const heroGrid = document.getElementById('inventory-hero-grid');
+    const lastUpdatedChip = document.getElementById('inventory-last-updated');
 
     // --- State ---
     let inventory = [];
@@ -36,6 +40,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let inventoryBuylistSnapshot = null;
     let editingInventoryItem = null;
     let manapoolExportRows = [];
+    let inventorySummary = null;
+    let chartInstance = null;
     const LARGE_CARD_IMAGE_PLACEHOLDER = 'https://placehold.co/245x342/1a1a1a/e0e0e0?text=N/A';
 
     const formatCurrency = (value) => {
@@ -343,6 +349,21 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    const detailObserver = 'IntersectionObserver' in window
+        ? new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (!entry.isIntersecting) return;
+                const itemId = entry.target.dataset.itemId;
+                const item = inventory.find(entryItem => String(entryItem.id) === String(itemId));
+                if (item && !item._detailsQueued) {
+                    item._detailsQueued = true;
+                    addToDetailQueue(() => fetchSingleCardDetails(item));
+                }
+                detailObserver.unobserve(entry.target);
+            });
+        }, { root: inventoryContainer, rootMargin: '140px' })
+        : null;
+
     // --- Helper Functions ---
     const calculateBreakevenPrice = (buyPrice, feeRate) => (buyPrice + FLAT_FEE - 1.30) / (1 - feeRate) + 1.25; // Adding $1.25 shipping buffer
     const calculateRecommendedPrice = (scrapedLow, breakevenPrice) => Math.max(scrapedLow || 0, breakevenPrice) * RECOMMENDED_MARKUP;
@@ -375,6 +396,179 @@ document.addEventListener('DOMContentLoaded', () => {
         return "Just now";
     };
 
+    const formatPercent = (value) => {
+        if (typeof value !== 'number' || !Number.isFinite(value)) return 'N/A';
+        return `${value.toFixed(1)}%`;
+    };
+
+    const fetchInventorySummary = async () => {
+        try {
+            const response = await fetch('/api/inventory/summary');
+            if (!response.ok) return null;
+            return await response.json();
+        } catch (error) {
+            console.warn('Failed to load inventory summary:', error);
+            return null;
+        }
+    };
+
+    const buildFallbackSummary = () => {
+        const quantity = inventory.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
+        const costBasis = inventory.reduce((sum, row) => sum + (Number(row.pricePaid) || 0) * (Number(row.quantity) || 0), 0);
+        const marketValue = inventory.reduce((sum, row) => sum + (Number(row.tcgMarketPrice) || 0) * (Number(row.quantity) || 0), 0);
+        const avgBuyPrice = quantity > 0 ? Number((costBasis / quantity).toFixed(2)) : 0;
+        const avgMarketPrice = quantity > 0 ? Number((marketValue / quantity).toFixed(2)) : 0;
+        const avgArbDollar = quantity > 0 ? Number(((marketValue - costBasis) / quantity).toFixed(2)) : 0;
+        const avgArbPct = costBasis > 0 ? Number(((marketValue - costBasis) / costBasis * 100).toFixed(2)) : 0;
+        return {
+            totals: {
+                marketValue: Number(marketValue.toFixed(2)),
+                costBasis: Number(costBasis.toFixed(2)),
+                quantity,
+                avgArbPct,
+                avgArbDollar,
+                avgBuyPrice,
+                avgMarketPrice
+            },
+            valueHistory: [{
+                date: new Date().toISOString().slice(0, 10),
+                marketValue,
+                costBasis
+            }],
+            spotlights: [...inventory]
+                .sort((a, b) => ((Number(b.tcgMarketPrice) || 0) * (Number(b.quantity) || 0)) - ((Number(a.tcgMarketPrice) || 0) * (Number(a.quantity) || 0)))
+                .slice(0, 8)
+        };
+    };
+
+    const renderStatCards = (summary) => {
+        if (!statsContainer) return;
+        const totals = summary?.totals || {};
+        const cards = [
+            { label: 'Market Value', value: formatCurrency(totals.marketValue) },
+            { label: 'Cost Basis', value: formatCurrency(totals.costBasis) },
+            { label: 'Units', value: Number.isFinite(totals.quantity) ? totals.quantity : 'N/A' },
+            { label: 'Avg Arbitrage', value: `${formatCurrency(totals.avgArbDollar)} · ${formatPercent(totals.avgArbPct)}` }
+        ];
+        statsContainer.innerHTML = cards.map(card => `
+            <div class="stat-card">
+                <span class="label">${escapeHtml(card.label)}</span>
+                <span class="value">${escapeHtml(card.value)}</span>
+            </div>
+        `).join('');
+    };
+
+    const buildPriceBuckets = () => {
+        const buckets = [
+            { label: '$0-1', min: 0, max: 1, count: 0 },
+            { label: '$1-2', min: 1, max: 2, count: 0 },
+            { label: '$2-5', min: 2, max: 5, count: 0 },
+            { label: '$5-10', min: 5, max: 10, count: 0 },
+            { label: '$10-20', min: 10, max: 20, count: 0 },
+            { label: '$20-50', min: 20, max: 50, count: 0 },
+            { label: '$50-100', min: 50, max: 100, count: 0 },
+            { label: '$100-200', min: 100, max: 200, count: 0 },
+            { label: '$200+', min: 200, max: Infinity, count: 0 }
+        ];
+        inventory.forEach(item => {
+            const price = Number(item.tcgMarketPrice ?? item.pricePaid ?? 0);
+            const qty = Number(item.quantity) || 0;
+            if (!Number.isFinite(price) || price <= 0 || qty <= 0) return;
+            const bucket = buckets.find(b => price >= b.min && price < b.max);
+            if (bucket) bucket.count += qty;
+        });
+        return buckets;
+    };
+
+    const renderChart = () => {
+        if (!chartCanvas || !window.Chart) return;
+        const buckets = buildPriceBuckets();
+        const labels = buckets.map(b => b.label);
+        const counts = buckets.map(b => b.count);
+        const max = Math.max(...counts, 1);
+        const colors = counts.map(c => {
+            const intensity = Math.max(0.15, Math.min(1, c / max));
+            return `rgba(96, 165, 250, ${0.25 + intensity * 0.55})`;
+        });
+
+        const ctx = chartCanvas.getContext('2d');
+        if (chartInstance) chartInstance.destroy();
+        chartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Quantity',
+                    data: counts,
+                    backgroundColor: colors,
+                    borderRadius: 6,
+                    borderSkipped: false
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => `${ctx.parsed.y} cards`
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: { color: 'rgba(226, 232, 240, 0.88)' },
+                        grid: { display: false }
+                    },
+                    y: {
+                        ticks: {
+                            color: 'rgba(226, 232, 240, 0.88)',
+                            precision: 0
+                        },
+                        grid: { color: 'rgba(148, 163, 184, 0.12)' }
+                    }
+                }
+            }
+        });
+    };
+
+    const resolveImageUrl = (item) => {
+        if (item?.imageUrl) return item.imageUrl;
+        if (item?.tcgplayerId) {
+            return `https://tcgplayer-cdn.tcgplayer.com/product/${item.tcgplayerId}_in_1000x1000.jpg`;
+        }
+        if (item?.scryfallId && item.scryfallId.length >= 2) {
+            const s = item.scryfallId;
+            return `https://cards.scryfall.io/normal/front/${s[0]}/${s[1]}/${s}.jpg`;
+        }
+        return LARGE_CARD_IMAGE_PLACEHOLDER;
+    };
+
+    const renderHeroGrid = (summary) => {
+        if (!heroGrid) return;
+        const pool = summary?.spotlights?.length ? summary.spotlights : buildFallbackSummary().spotlights;
+        if (!pool.length) {
+            heroGrid.innerHTML = '<p class="empty-list-message">Add cards to see spotlight images here.</p>';
+            return;
+        }
+        heroGrid.innerHTML = pool.map(item => {
+            const img = resolveImageUrl(item);
+            const safeName = escapeHtml(item.name || 'Unknown');
+            const foilLabel = item.foilType && item.foilType !== 'normal' ? `${escapeHtml(item.foilType)} · ` : '';
+            const price = Number.isFinite(item.tcgMarketPrice) ? `$${Number(item.tcgMarketPrice).toFixed(2)}` : 'N/A';
+            return `
+                <div class="hero-card">
+                    <img src="${img}" alt="${safeName}" loading="lazy">
+                    <div class="hero-meta">
+                        <h4>${safeName}</h4>
+                        <p>${foilLabel}x${escapeHtml(item.quantity || 0)} · ${price}</p>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    };
+
     // --- Core Functions ---
     const renderInventory = () => {
         if (inventory.length === 0) {
@@ -391,8 +585,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 const itemElement = document.createElement('div');
                 itemElement.className = 'inventory-item skeleton';
                 itemElement.id = `item-${item.id}`;
+                itemElement.dataset.itemId = item.id;
                 inventoryContainer.appendChild(itemElement);
-                addToDetailQueue(() => fetchSingleCardDetails(item));
+                if (detailObserver) {
+                    detailObserver.observe(itemElement);
+                } else {
+                    addToDetailQueue(() => fetchSingleCardDetails(item));
+                }
             });
 
         applyInventoryFilter();
@@ -685,9 +884,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const initializePage = async () => {
         try {
-            const [inventoryResponse, snapshot] = await Promise.all([
+            const [inventoryResponse, snapshot, summary] = await Promise.all([
                 fetch('/api/inventory'),
-                fetchInventoryBuylistSnapshot()
+                fetchInventoryBuylistSnapshot(),
+                fetchInventorySummary()
             ]);
 
             if (!inventoryResponse.ok) throw new Error("Could not fetch inventory from server.");
@@ -702,6 +902,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     item.tcgplayerId
                 ].filter(Boolean).join(' ').toLowerCase(),
             }));
+
+            inventorySummary = summary || buildFallbackSummary();
 
             inventoryBuylistModal.init({
                 contextId: 'inventory',
@@ -720,6 +922,13 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             renderInventory();
+            renderStatCards(inventorySummary);
+            renderChart();
+            renderHeroGrid(inventorySummary);
+            if (lastUpdatedChip && inventorySummary?.valueHistory?.length) {
+                const lastPoint = inventorySummary.valueHistory[inventorySummary.valueHistory.length - 1];
+                lastUpdatedChip.textContent = `Prices as of ${lastPoint.date}`;
+            }
         } catch (error) {
             console.error(error);
             inventoryContainer.innerHTML = '<p class="error">Could not load inventory.</p>';

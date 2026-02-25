@@ -669,8 +669,9 @@ const renderPushInventoryRows = (rows = []) => {
 };
 
 const loadPushModalInventory = async () => {
-    if (!pushTableBody) return;
-    pushTableBody.innerHTML = '<tr><td colspan="7" class="empty">Loading inventory...</td></tr>';
+    if (pushTableBody) {
+        pushTableBody.innerHTML = '<tr><td colspan="7" class="empty">Loading inventory...</td></tr>';
+    }
     try {
         const response = await fetch('/api/inventory');
         if (!response.ok) {
@@ -681,9 +682,11 @@ const loadPushModalInventory = async () => {
         pushModalInventory = Array.isArray(data)
             ? data.filter(item => Number(item.quantity) > 0).sort((a, b) => (a.name || '').localeCompare(b.name || ''))
             : [];
-        renderPushInventoryRows(pushModalInventory);
+        if (pushTableBody) renderPushInventoryRows(pushModalInventory);
     } catch (error) {
-        pushTableBody.innerHTML = '<tr><td colspan="7" class="empty">Failed to load inventory.</td></tr>';
+        if (pushTableBody) {
+            pushTableBody.innerHTML = '<tr><td colspan="7" class="empty">Failed to load inventory.</td></tr>';
+        }
         showToast(error.message || 'Failed to load inventory', 'error');
     }
 };
@@ -700,7 +703,7 @@ const closePushModal = () => {
 };
 
 const pushInventoryItemRequest = async ({ inventoryId, scryfallId = 'unknown', offsetCents, button = null, refresh = true }) => {
-    if (!inventoryId) return false;
+    if (!inventoryId) return { success: false, error: 'Missing inventoryId' };
     try {
         if (button) setLoading(button, true);
         const result = await fetchJson('/api/manapool/inventory/push-item', {
@@ -719,11 +722,12 @@ const pushInventoryItemRequest = async ({ inventoryId, scryfallId = 'unknown', o
             refreshStatus();
             refreshDiscrepancies();
         }
-        return true;
+        return { success: true, message };
     } catch (error) {
-        showToast(error.message || 'Failed to push card.', 'error');
-        appendLog(error.message || 'Failed to push card.', 'error');
-        return false;
+        const errMsg = error.message || 'Failed to push card.';
+        showToast(errMsg, 'error');
+        appendLog(errMsg, 'error');
+        return { success: false, error: errMsg };
     } finally {
         if (button) setLoading(button, false);
     }
@@ -757,8 +761,11 @@ const cleanupRemoteInventoryClient = async () => {
 const pushAllInventory = async () => {
     if (!pushAllConfirmBtn || isPushAllRunning) return;
     if (!pushModalInventory.length) {
-        showToast('No inventory entries available to push.', 'error');
-        return;
+        await loadPushModalInventory();
+        if (!pushModalInventory.length) {
+            showToast('No inventory entries available to push.', 'error');
+            return;
+        }
     }
     isPushAllRunning = true;
     setLoading(pushAllConfirmBtn, true);
@@ -781,7 +788,7 @@ const pushAllInventory = async () => {
                 updatePushProgress(current, total, `Pushing ${item.name} (${current + 1}/${total})...`);
                 const stepId = stepIds[current];
                 updatePushProgressStep(stepId, 'Sending to ManaPool...', 'running');
-                const pushed = await pushInventoryItemRequest({
+                const pushResult = await pushInventoryItemRequest({
                     inventoryId: item.id,
                     scryfallId: item.scryfallId || 'unknown',
                     offsetCents: offset,
@@ -791,11 +798,12 @@ const pushAllInventory = async () => {
                     updatePushProgressStep(variantStepId, 'Latest prices downloaded', 'success');
                     variantStepCompleted = true;
                 }
-                if (pushed) {
+                if (pushResult.success) {
                     successCount += 1;
-                    updatePushProgressStep(stepId, 'Pushed successfully', 'success');
+                    updatePushProgressStep(stepId, pushResult.message || 'Pushed successfully', 'success');
                 } else {
-                    updatePushProgressStep(stepId, 'Skipped or failed to push', 'skipped');
+                    const detail = pushResult.error || 'Skipped or failed to push';
+                    updatePushProgressStep(stepId, detail, 'error');
                 }
                 updatePushProgress(current + 1, total, `Processed ${current + 1} of ${total}`);
             }
@@ -998,6 +1006,14 @@ const setupPushModalBindings = () => {
             showToast('Failed to copy value.', 'error');
         });
     });
+    pushProgressStepsList?.addEventListener('click', (event) => {
+        const li = event.target.closest('li');
+        if (!li) return;
+        const detail = li.dataset.detail;
+        if (detail) {
+            showToast(detail, li.dataset.status === 'error' ? 'error' : 'info');
+        }
+    });
     pushAllConfirmBtn?.addEventListener('click', () => {
         pushAllInventory();
     });
@@ -1011,6 +1027,7 @@ const initializeManapoolPage = () => {
     initEventListeners();
     initAutomationForm();
     setupPushModalBindings();
+    initQuickSync();
     refreshStatus();
     refreshDiscrepancies();
 };
@@ -1029,6 +1046,8 @@ const getPriceOffsetValue = () => {
 const showPushProgress = (message = 'Starting push...') => {
     if (!pushProgressContainer || !pushProgressBarFill || !pushProgressText) return;
     pushProgressContainer.removeAttribute('hidden');
+    const emptyState = document.getElementById('push-progress-empty');
+    if (emptyState) emptyState.setAttribute('hidden', 'hidden');
     pushProgressBarFill.style.width = '0%';
     pushProgressText.textContent = message;
     resetPushProgressSteps();
@@ -1046,6 +1065,8 @@ const updatePushProgress = (current, total, message) => {
 const hidePushProgress = () => {
     if (!pushProgressContainer) return;
     pushProgressContainer.setAttribute('hidden', 'hidden');
+    const emptyState = document.getElementById('push-progress-empty');
+    if (emptyState) emptyState.removeAttribute('hidden');
 };
 
 const resetPushProgressSteps = () => {
@@ -1060,6 +1081,7 @@ const addPushProgressStep = (id, title, detail, status = 'pending') => {
     const entryId = id || `step-${Date.now()}-${Math.random()}`;
     const li = document.createElement('li');
     li.dataset.status = status;
+    if (detail) li.dataset.detail = detail;
     li.innerHTML = `
         <div>
             <div class="step-title">${escapeHtml(title)}</div>
@@ -1082,6 +1104,7 @@ const updatePushProgressStep = (id, detail, status) => {
         li.dataset.status = status;
     }
     if (detail) {
+        li.dataset.detail = detail;
         const detailEl = li.querySelector('.step-detail');
         if (detailEl) {
             detailEl.textContent = detail;
@@ -1097,4 +1120,78 @@ const updatePushProgressStep = (id, detail, status) => {
             }
         }
     }
+};
+
+/* ── Quick Sync ─────────────────────────────────────────── */
+
+const initQuickSync = () => {
+    const quickSyncBtn = document.getElementById('quick-sync-btn');
+    const quickSyncProgress = document.getElementById('quick-sync-progress');
+    if (!quickSyncBtn) return;
+
+    const setStepState = (step, state) => {
+        const el = quickSyncProgress?.querySelector(`[data-step="${step}"]`);
+        if (!el) return;
+        el.classList.remove('active', 'done', 'error');
+        if (state) el.classList.add(state);
+    };
+
+    const resetSteps = () => {
+        quickSyncProgress?.querySelectorAll('.quick-sync-step').forEach(el => {
+            el.classList.remove('active', 'done', 'error');
+        });
+    };
+
+    quickSyncBtn.addEventListener('click', async () => {
+        quickSyncBtn.disabled = true;
+        quickSyncBtn.textContent = 'Syncing...';
+        quickSyncProgress?.removeAttribute('hidden');
+        resetSteps();
+
+        try {
+            // Step 1: Pull Orders
+            setStepState('orders', 'active');
+            const orderResult = await fetchJson('/api/manapool/orders/pull', { method: 'POST' });
+            hasPulledOrdersThisSession = true;
+            setStepState('orders', 'done');
+            appendLog(`Quick Sync: pulled ${orderResult.imported ?? 0} orders`, 'success');
+
+            if (Array.isArray(orderResult.unmatchedOrders) && orderResult.unmatchedOrders.length) {
+                openUnmatchedModal(orderResult.unmatchedOrders);
+            }
+
+            // Step 2: Push Inventory
+            setStepState('push', 'active');
+            await fetchJson('/api/manapool/inventory/push', { method: 'POST', body: JSON.stringify({ priceOffsetCents: 1 }), headers: { 'Content-Type': 'application/json' } });
+            setStepState('push', 'done');
+            appendLog('Quick Sync: pushed inventory to ManaPool', 'success');
+
+            // Step 3: Enable Auto-Pricer
+            setStepState('auto', 'active');
+            const currentSettings = await fetchJson('/api/manapool/prices/automation');
+            const payload = { ...currentSettings, enabled: true };
+            await fetchJson('/api/manapool/prices/automation', {
+                method: 'POST',
+                body: JSON.stringify(payload),
+                headers: { 'Content-Type': 'application/json' }
+            });
+            setStepState('auto', 'done');
+            appendLog('Quick Sync: auto-pricer enabled', 'success');
+
+            showToast('Full sync complete!', 'success');
+            await loadAutomationSettings();
+        } catch (error) {
+            const failedStep = quickSyncProgress?.querySelector('.active');
+            if (failedStep) {
+                failedStep.classList.remove('active');
+                failedStep.classList.add('error');
+            }
+            showToast(error.message || 'Quick sync failed', 'error');
+            appendLog(error.message || 'Quick sync failed', 'error');
+        } finally {
+            quickSyncBtn.disabled = false;
+            quickSyncBtn.textContent = 'Run Full Sync';
+            await Promise.all([refreshStatus(), refreshDiscrepancies()]);
+        }
+    });
 };

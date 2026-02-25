@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="/theme.css">
     <link rel="stylesheet" href="/inventory-style.css">
     <link rel="stylesheet" href="/card-search.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="header">
@@ -16,19 +17,54 @@
             <div class="header-controls">
                 <button id="export-inventory-btn" class="action-btn export-btn">Export as TXT</button>
                 <button id="export-manapool-btn" class="secondary-btn" type="button">Export to ManaPool</button>
-            <button id="open-buylist-modal" class="secondary-btn" type="button">Buylist Analysis</button>
-            <a href="/" class="back-button">&larr; Back to Home</a>
+                <button id="open-buylist-modal" class="secondary-btn" type="button">Buylist Analysis</button>
+                <a href="/" class="back-button">&larr; Back to Home</a>
+            </div>
         </div>
-    </div>
-        <div class="inventory-filter">
-            <input type="search" id="inventory-filter" class="filter-input" placeholder="Filter inventory by name, set, condition..." aria-label="Filter inventory">
-        </div>
-    </div>
+    <main class="inventory-dashboard">
+        <section class="band band-metrics">
+            <div class="band-header">
+                <div>
+                    <h2>Portfolio Overview</h2>
+                    <p>Cost basis, market value, and arbitrage at a glance.</p>
+                </div>
+                <span id="inventory-last-updated" class="muted-chip"></span>
+            </div>
+            <div id="inventory-stats" class="stat-grid"></div>
+        </section>
 
-    <p id="inventory-filter-empty" class="empty-list-message" hidden>No inventory items match your filter.</p>
+        <section class="band band-chart">
+            <div class="band-header">
+                <div>
+                    <h2>Price Heatmap</h2>
+                    <p>Inventory counts by market price bucket.</p>
+                </div>
+            </div>
+            <canvas id="inventory-value-chart" height="200"></canvas>
+        </section>
 
-    <div id="inventory-container">
-        </div>
+        <section class="band band-search">
+            <div class="band-header">
+                <div>
+                    <h2>Search & Filter</h2>
+                    <p>List-style results with live arbitrage.</p>
+                </div>
+                <input type="search" id="inventory-search" class="filter-input" placeholder="Search by name, set, condition, finish..." aria-label="Search inventory">
+            </div>
+            <p id="inventory-filter-empty" class="empty-list-message" hidden>No inventory items match your search.</p>
+            <div id="inventory-container" class="inventory-results"></div>
+        </section>
+
+        <section class="band band-hero">
+            <div class="band-header">
+                <div>
+                    <h2>Inventory Spotlight</h2>
+                    <p>Highest-value items pulled from your holdings.</p>
+                </div>
+            </div>
+            <div id="inventory-hero-grid" class="hero-grid"></div>
+        </section>
+    </main>
 
     <div id="export-modal" class="export-modal">
         <div class="export-modal__content">

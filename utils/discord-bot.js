@@ -684,38 +684,103 @@ export const publishAutomationRunSummary = async (summary = {}) => {
     });
 };
 
-const sendToChannel = async (channel, payload, label = '[discord-bot] message') => {
-    if (!channel || !client?.isReady()) {
-        if (typeof payload === 'string') {
-            console.log(`${label}:`, payload);
-        } else {
-            try {
-                console.log(`${label} payload:`, JSON.stringify(payload));
-            } catch {
-                console.log(`${label} payload:`, payload);
-            }
-        }
-        return;
-    }
+const formatPayloadForLog = (payload) => {
+    if (typeof payload === 'string') return payload;
     try {
-        if (typeof payload === 'string') {
-            await channel.send({ content: payload });
-        } else {
-            await channel.send(payload);
-        }
-    } catch (error) {
-        console.warn(`${label} failed:`, error.message || error);
+        return JSON.stringify(payload);
+    } catch {
+        return String(payload);
     }
 };
 
-export const logDiscordConsole = async (payload) => {
-    await sendToChannel(consoleChannel || logChannel, payload, '[discord-bot] console');
+const makeLocalEchoMessage = (label) => ({
+    id: `${label}-local-${Date.now()}`,
+    async edit(nextPayload) {
+        const printable = formatPayloadForLog(nextPayload);
+        console.log(`${label} edit:`, printable);
+    }
+});
+
+const asDiscordBody = (payload) => {
+    if (typeof payload === 'string') return { content: payload };
+    if (payload && typeof payload === 'object') return payload;
+    return { content: String(payload) };
 };
+
+const sendViaRest = async (channelId, payload, label) => {
+    if (!DISCORD_BOT_TOKEN || !channelId) return null;
+    const body = asDiscordBody(payload);
+    try {
+        const resp = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bot ${DISCORD_BOT_TOKEN}`
+            },
+            body: JSON.stringify(body)
+        });
+        if (!resp.ok) {
+            const text = await resp.text();
+            throw new Error(`${resp.status} ${resp.statusText} ${text}`);
+        }
+        const data = await resp.json();
+        return {
+            id: data.id,
+            channelId: data.channel_id,
+            async edit(nextPayload) {
+                const patch = asDiscordBody(nextPayload);
+                await fetch(`https://discord.com/api/v10/channels/${data.channel_id}/messages/${data.id}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bot ${DISCORD_BOT_TOKEN}`
+                    },
+                    body: JSON.stringify(patch)
+                });
+            }
+        };
+    } catch (err) {
+        console.warn(`${label} REST send failed:`, err.message || err);
+        return null;
+    }
+};
+
+const sendToChannel = async (channel, payload, label = '[discord-bot] message', fallbackChannelId = null) => {
+    const echo = makeLocalEchoMessage(label);
+
+    // Use websocket channel if ready
+    if (channel && client?.isReady()) {
+        try {
+            if (typeof payload === 'string') {
+                const sent = await channel.send({ content: payload });
+                return sent;
+            }
+            const sent = await channel.send(payload);
+            return sent;
+        } catch (error) {
+            console.warn(`${label} failed:`, error.message || error);
+        }
+    }
+
+    // Fall back to REST using bot token + channel id
+    if (fallbackChannelId) {
+        const restSent = await sendViaRest(fallbackChannelId, payload, label);
+        if (restSent) return restSent;
+    }
+
+    // Final fallback: log locally
+    console.log(`${label}:`, formatPayloadForLog(payload));
+    return echo;
+};
+
+export const logDiscordConsole = async (payload) =>
+    sendToChannel(consoleChannel || logChannel, payload, '[discord-bot] console', DISCORD_CONSOLE_CHANNEL_ID || DISCORD_LOG_CHANNEL_ID);
 
 export const logDiscordEvent = async (payload) => {
     const targets = Array.from(new Set([logChannel, consoleChannel].filter(Boolean)));
     const channel = targets.length ? targets[0] : null;
-    await sendToChannel(channel, payload, '[discord-bot] log');
+    const channelId = DISCORD_LOG_CHANNEL_ID || DISCORD_CONSOLE_CHANNEL_ID || null;
+    return sendToChannel(channel, payload, '[discord-bot] log', channelId);
 };
 
 export const getDashboardState = () => ({ ...state });

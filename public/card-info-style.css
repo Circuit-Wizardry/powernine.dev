@@ -1,83 +1,86 @@
 body {
-    background: var(--bg-color);
+    background: #000;
     color: var(--text-color);
-    font-family: 'Segoe UI', Arial, sans-serif;
+    font-family: var(--font-family-base);
     margin: 0;
     padding: 0;
 }
 
 .container {
     max-width: 1100px;
-    margin: 40px auto;
+    margin: 32px auto;
     background: var(--surface-color);
-    border-radius: 16px;
-    box-shadow: 0 4px 32px rgba(0,0,0,0.25);
-    padding: 32px;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    padding: 28px;
     display: flex;
     flex-direction: row;
-    gap: 40px;
+    gap: 32px;
 }
 
 .left-panel {
-    flex: 0 0 320px;
+    flex: 0 0 300px;
     display: flex;
     flex-direction: column;
     align-items: center;
 }
 
 .card-name {
-    margin-top: 0; 
-    margin-bottom: 18px; 
-    font-size: 2rem; 
+    margin-top: 0;
+    margin-bottom: 16px;
+    font-size: 1.8rem;
     font-weight: 700;
 }
 
 .oracle-text {
-    background: var(--surface-alt);
-    border-radius: 8px;
-    padding: 18px 16px;
-    margin-bottom: 18px;
-    font-size: 1.08rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 16px 14px;
+    margin-bottom: 16px;
+    font-size: 1rem;
     line-height: 1.5;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.10);
     width: 100%;
 }
 
 .card-image {
     width: 100%;
     max-width: 300px;
-    border-radius: 10px;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.18);
-    margin-bottom: 18px;
-    background: #1a1c1e;
+    border-radius: var(--radius-md);
+    margin-bottom: 16px;
+    background: #0a0a0a;
     aspect-ratio: 5/7;
     object-fit: cover;
 }
 
 .prices-table, .printings-table {
     width: 100%;
-    background: var(--surface-color);
-    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: var(--radius-md);
     border-collapse: collapse;
-    font-size: 0.98rem;
-    box-shadow: 0 1px 6px rgba(0,0,0,0.10);
+    font-size: 0.95rem;
+    border: 1px solid var(--border-color);
 }
 
-.prices-table { 
-    margin-bottom: 24px; 
-    font-size: 1.05rem; 
+.prices-table {
+    margin-bottom: 20px;
+    font-size: 1rem;
 }
 
-.prices-table th, .prices-table td, 
+.prices-table th, .prices-table td,
 .printings-table th, .printings-table td {
     padding: 8px 12px;
-    border-bottom: 1px solid rgba(95,108,153,0.28);
+    border-bottom: 1px solid var(--border-color);
     text-align: left;
 }
 
 .prices-table th, .printings-table th {
-    background: var(--surface-alt);
+    background: rgba(255, 255, 255, 0.04);
     font-weight: 600;
+    color: var(--muted-color);
+    text-transform: uppercase;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
 }
 
 .prices-table tr:last-child td, .printings-table tr:last-child td {
@@ -85,7 +88,7 @@ body {
 }
 
 .printings-table tbody tr {
-    transition: background-color 0.2s;
+    transition: background var(--transition-duration);
 }
 
 .printings-table tbody tr:not(.current-printing) {
@@ -93,7 +96,7 @@ body {
 }
 
 .printings-table tbody tr:not(.current-printing):hover {
-    background-color: rgba(95,108,153,0.18);
+    background: rgba(255, 255, 255, 0.04);
 }
 
 .right-panel {
@@ -111,65 +114,63 @@ body {
 .error-message {
     text-align: center;
     padding: 50px;
-    font-size: 1.2rem;
+    font-size: 1.1rem;
 }
 
 @media (max-width: 900px) {
-    .container { 
-        flex-direction: column; 
-        padding: 16px; 
-        gap: 24px; 
+    .container {
+        flex-direction: column;
+        padding: 16px;
+        gap: 20px;
     }
-    .left-panel { 
-        flex-basis: auto; 
-        align-items: stretch; 
+    .left-panel {
+        flex-basis: auto;
+        align-items: stretch;
     }
 }
-
-/* --- ADDED STYLES --- */
 
 .table-header-container {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
 }
 
 .table-header-container .table-header {
-    margin: 0; /* Remove margin from h3 when it's inside the flex container */
+    margin: 0;
 }
 
 .scrape-btn {
-    background-color: #007bff;
-    color: white;
+    background: var(--primary-color);
+    color: #fff;
     padding: 6px 14px;
-    border: none;
-    border-radius: 6px;
+    border: 1px solid var(--primary-color);
+    border-radius: var(--radius-sm);
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     font-weight: 600;
-    transition: background-color 0.2s ease-in-out, transform 0.1s ease;
-    white-space: nowrap; /* Prevents text from wrapping if button is narrow */
+    transition: background var(--transition-duration) ease;
+    white-space: nowrap;
 }
 
 .scrape-btn:hover {
-    background-color: #0069d9;
+    background: #5a48e0;
 }
 
 .scrape-btn:active {
-    transform: translateY(1px);
+    opacity: 0.8;
 }
 
 .scrape-btn:disabled {
-    background-color: #5a6268;
-    color: var(--muted-strong)ccc;
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--border-color);
+    color: var(--muted-color);
     cursor: not-allowed;
-    transform: none;
 }
 
 .printings-table-wrapper {
     width: 100%;
-    margin-top: 24px;
+    margin-top: 20px;
 }
 
 .printings-table-wrapper .table-header-container {
@@ -178,17 +179,17 @@ body {
 
 .printings-table small {
     display: block;
-    color: var(--muted-color, #a0aec0);
-    font-size: 0.8rem;
+    color: var(--muted-color);
+    font-size: 0.78rem;
     letter-spacing: 0.04em;
 }
 
 .printings-table .current-printing {
-    background: rgba(96, 165, 250, 0.08);
+    background: rgba(109, 92, 255, 0.06);
 }
 
 .printings-table .current-printing strong {
-    color: var(--primary-color, #60a5fa);
+    color: var(--primary-color);
 }
 
 .printings-table td:last-child {
@@ -196,12 +197,12 @@ body {
 }
 
 .printing-code {
-    font-size: 1rem;
+    font-size: 0.95rem;
     letter-spacing: 0.05em;
 }
 
 .price-cell {
-    color: #fcb045;
+    color: var(--warning-color);
     font-weight: 600;
 }
 
@@ -209,50 +210,47 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 4px 12px;
+    padding: 4px 10px;
     border-radius: 999px;
-    font-size: 0.78rem;
+    font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    background: rgba(96, 165, 250, 0.15);
-    color: var(--primary-color, #60a5fa);
+    background: rgba(109, 92, 255, 0.1);
+    color: var(--primary-color);
     font-weight: 600;
 }
 
 .global-home-link {
     position: fixed;
-    top: 18px;
-    left: 18px;
+    top: 16px;
+    left: 16px;
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    color: var(--primary-color);
+    color: var(--text-color);
     text-decoration: none;
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     font-weight: 600;
-    border: 1px solid rgba(96, 165, 250, 0.45);
-    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
     padding: 4px 12px;
-    line-height: 1;
-    backdrop-filter: blur(6px);
-    background: rgba(7, 10, 22, 0.65);
-    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+    background: rgba(0, 0, 0, 0.8);
+    transition: background var(--transition-duration) ease, border-color var(--transition-duration) ease;
     z-index: 2100;
 }
 
 .global-home-link:hover {
-    background: rgba(96, 165, 250, 0.18);
-    border-color: rgba(96, 165, 250, 0.65);
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.20);
 }
 
 #printing-preview {
     position: fixed;
     pointer-events: none;
     padding: 6px;
-    border-radius: 12px;
-    background: rgba(15, 23, 42, 0.95);
-    border: 1px solid rgba(148, 163, 184, 0.35);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+    border-radius: var(--radius-md);
+    background: rgba(8, 8, 10, 0.98);
+    border: 1px solid var(--border-color);
     display: none;
     z-index: 2000;
 }
@@ -262,8 +260,8 @@ body {
 }
 
 #printing-preview img {
-    width: 220px;
+    width: 200px;
     height: auto;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     display: block;
 }

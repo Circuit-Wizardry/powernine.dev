@@ -49,16 +49,43 @@ async function scrapeStarCityGamesBuylist(page, cardName, collectorNumber, foilT
                 
                 // --- Proceed with normal parsing only if it's not a promo ---
                 const rawCollNumber = await item.locator('.coll-number').textContent({ timeout: 2000 });
-                
                 const normalizedCollNumber = rawCollNumber.replace('#', '').trim();
-                const hasFoilClass = await item.locator('.finish.is-foil').count() > 0;
-                const normalizedFinish = hasFoilClass ? 'foil' : 'normal';
+
+                // Finish is shown as a chip: `.finish-chip foil` or `.finish-chip non-foil`
+                const finishChip = item.locator('.finish .finish-chip').first();
+                let normalizedFinish = 'normal';
+
+                if (await finishChip.count() > 0) {
+                    const finishTextRaw = await finishChip.textContent({ timeout: 2000 });
+                    const finishText = (finishTextRaw || '').toLowerCase().replace(/\s+/g, ' ').trim();
+                    const finishClasses = ((await finishChip.getAttribute('class')) || '').toLowerCase();
+
+                    const isNonFoil = finishText.includes('non-foil') || finishText.includes('nonfoil') ||
+                                      finishClasses.includes('non-foil') || finishClasses.includes('nonfoil');
+                    const isEtched = finishText.includes('etched') || finishClasses.includes('etched');
+                    const isFoil = finishText.includes('foil') || finishClasses.includes('foil');
+
+                    if (isNonFoil) {
+                        normalizedFinish = 'normal';
+                    } else if (isEtched) {
+                        normalizedFinish = 'etched';
+                    } else if (isFoil) {
+                        normalizedFinish = 'foil';
+                    } else {
+                        normalizedFinish = 'normal';
+                    }
+                } else {
+                    // Fallback to legacy class check if badge is missing
+                    const hasFoilClass = await item.locator('.finish.is-foil').count() > 0;
+                    normalizedFinish = hasFoilClass ? 'foil' : 'normal';
+                }
                 
                 console.log(`      [Item ${index+1}] Parsed: #${normalizedCollNumber}, ${normalizedFinish}`);
                 
                 const numberMatch = parseInt(normalizedCollNumber, 10) === parseInt(collectorNumber, 10);
-                const finishMatch = (foilType === 'normal' && normalizedFinish === 'normal') || 
-                                    ((foilType === 'foil' || foilType === 'etched') && normalizedFinish === 'foil');
+                const finishMatch = (foilType === 'normal' && normalizedFinish === 'normal') ||
+                                    (foilType === 'foil' && normalizedFinish === 'foil') ||
+                                    (foilType === 'etched' && (normalizedFinish === 'etched' || normalizedFinish === 'foil'));
                 
                 console.log(`          -> Comparing: [Coll#: '${normalizedCollNumber}' vs '${collectorNumber}' -> ${numberMatch}] AND [Finish: '${normalizedFinish}' vs '${foilType}' -> ${finishMatch}]`);
 
@@ -73,7 +100,7 @@ async function scrapeStarCityGamesBuylist(page, cardName, collectorNumber, foilT
                         const priceText = await priceElement.textContent({ timeout: 5000 });
                         const price = parseFloat(priceText.replace('$', ''));
 
-                        console.log(`      ✅ SUCCESS: Extracted NM price: $${price}. Returning this value.`);
+                        console.log(`      SUCCESS: Extracted NM price: $${price}. Returning this value.`);
                         return price;
                     } else {
                         console.log(`      -> Match found, but no NM price listed. Checking next result...`);

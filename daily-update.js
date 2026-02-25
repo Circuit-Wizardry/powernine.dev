@@ -7,6 +7,7 @@ import { log } from './discord.js'
 
 // --- Configuration ---
 const DATA_DIR = 'data';
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const SOURCE_DB_PATH = path.join(DATA_DIR, 'AllPrintings.sqlite');
 const TARGET_DB_PATH = path.join(DATA_DIR, 'AllData.sqlite');
 const TODAY_PRICES_PATH = path.join(DATA_DIR, 'AllPricesToday.json');
@@ -28,6 +29,92 @@ const PRESERVED_DB_OBJECTS = [
     'manapool_automation_settings',
     'manapool_automation_baselines'
 ];
+
+const PROGRESS_STAGES = [
+    { key: 'backup', label: 'Backup AllData.sqlite' },
+    { key: 'downloadPrintings', label: 'Download AllPrintings.sqlite' },
+    { key: 'downloadPrices', label: 'Download AllPricesToday.json' },
+    { key: 'refreshPrintings', label: 'Refresh printings data' },
+    { key: 'mergePriceHistory', label: 'Merge daily price history' },
+    { key: 'refreshInventoryPrices', label: 'Refresh inventory market prices' },
+    { key: 'consolidateInventory', label: 'Consolidate duplicate inventory rows' }
+];
+
+const PROGRESS_BAR_WIDTH = 20;
+
+const progressMarker = (status) => {
+    if (status === 'done') return '[x]';
+    if (status === 'running') return '[>]';
+    if (status === 'error') return '[!]';
+    return '[ ]';
+};
+
+const buildProgressContent = (statusMap, note = '') => {
+    const stages = PROGRESS_STAGES.map((stage) => ({
+        ...stage,
+        status: statusMap[stage.key] || 'pending'
+    }));
+    const completed = stages.filter((stage) => stage.status === 'done').length;
+    const total = stages.length || 1;
+    const percent = Math.round((completed / total) * 100);
+    const filled = Math.round((completed / total) * PROGRESS_BAR_WIDTH);
+    const bar = `[${'#'.repeat(filled)}${'.'.repeat(PROGRESS_BAR_WIDTH - filled)}] ${percent}%`;
+    const stageLines = stages.map((stage) => ` - ${progressMarker(stage.status)} ${stage.label}`).join('\n');
+    return [
+        percent === 100 ? 'Daily update finished.' : 'Daily update running...',
+        `${bar} (${completed}/${total} stages complete)`,
+        note ? `Now: ${note}` : null,
+        'Stages:',
+        stageLines
+    ].filter(Boolean).join('\n');
+};
+
+const createProgressTracker = async () => {
+    const statusMap = PROGRESS_STAGES.reduce((acc, stage) => {
+        acc[stage.key] = 'pending';
+        return acc;
+    }, {});
+
+    let message = null;
+
+    const safeEdit = async (content) => {
+        if (message?.edit) {
+            try {
+                await message.edit({ content });
+                return;
+            } catch (err) {
+                console.warn('[daily-update] Failed to edit Discord progress message:', err.message || err);
+            }
+        }
+        console.log('[daily-update] progress update:\n', content);
+    };
+
+    const update = async (note) => safeEdit(buildProgressContent(statusMap, note));
+
+    try {
+        message = await log(buildProgressContent(statusMap, 'Starting daily update...'));
+    } catch (err) {
+        console.warn('[daily-update] Failed to send Discord progress message:', err.message || err);
+    }
+
+    await update('Preparing to start...');
+
+    const setStatus = async (key, status, note) => {
+        if (!(key in statusMap)) return;
+        statusMap[key] = status;
+        await update(note || PROGRESS_STAGES.find((stage) => stage.key === key)?.label);
+    };
+
+    return {
+        markRunning: (key, note) => setStatus(key, 'running', note),
+        markDone: (key, note) => setStatus(key, 'done', note),
+        markError: (key, note) => setStatus(key, 'error', note),
+        finalize: (note) => {
+            PROGRESS_STAGES.forEach((stage) => { statusMap[stage.key] = 'done'; });
+            return update(note || 'All stages complete.');
+        }
+    };
+};
 
 const getLatestFromHistory = (history) => {
     if (!history || typeof history !== 'object') return null;
@@ -62,6 +149,54 @@ const fetchTcgMarketPriceForCard = (db, setCode, collectorNumber, foilType = 'no
         });
     });
 };
+
+async function consolidateInventory(targetDbPath) {
+    console.log('\nConsolidating duplicate inventory rows...');
+    const db = new sqlite3.Database(targetDbPath);
+    const rows = await new Promise((resolve, reject) => {
+        db.all(
+            'SELECT id, setCode, collectorNumber, foilType, condition, pricePaid, quantity, scryfallId, tcgplayerId, createdAt FROM inventory',
+            [],
+            (err, data) => err ? reject(err) : resolve(data || [])
+        );
+    });
+    const groups = new Map();
+    rows.forEach((row) => {
+        const key = [
+            (row.setCode || '').toUpperCase(),
+            String(row.collectorNumber || '').trim(),
+            String(row.foilType || 'normal').toLowerCase(),
+            String(row.condition || 'NM').toUpperCase(),
+            (row.scryfallId || '').toLowerCase(),
+            row.tcgplayerId ? String(row.tcgplayerId) : ''
+        ].join('|');
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(row);
+    });
+    let merged = 0;
+    for (const [, group] of groups.entries()) {
+        if (group.length <= 1) continue;
+        merged += group.length - 1;
+        group.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+        const keeper = group[0];
+        const rest = group.slice(1);
+        const totalQty = group.reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
+        const totalCost = group.reduce((sum, r) => sum + (Number(r.pricePaid) || 0) * (Number(r.quantity) || 0), 0);
+        const avgPaid = totalQty > 0 ? Number((totalCost / totalQty).toFixed(2)) : 0;
+        await new Promise((resolve, reject) => {
+            db.run('UPDATE inventory SET quantity = ?, pricePaid = ? WHERE id = ?', [totalQty, avgPaid, keeper.id], (err) => err ? reject(err) : resolve());
+        });
+        if (rest.length) {
+            const ids = rest.map(r => r.id);
+            const placeholders = ids.map(() => '?').join(',');
+            await new Promise((resolve, reject) => {
+                db.run(`DELETE FROM inventory WHERE id IN (${placeholders})`, ids, (err) => err ? reject(err) : resolve());
+            });
+        }
+    }
+    console.log(` -> Consolidated ${merged} duplicate rows.`);
+    db.close();
+}
 
 async function refreshInventoryMarketPrices(targetDbPath) {
     console.log('\nUpdating tcgMarketPrice for inventory items...');
@@ -139,6 +274,34 @@ async function downloadFile(url, destPath) {
 }
 
 /**
+ * Creates a timestamped backup of the AllData database inside data/backups.
+ * Streams are used to avoid loading the entire file into memory.
+ * @param {string} targetDbPath Path to the AllData.sqlite file.
+ * @param {string} backupDir Directory to place the backup.
+ * @returns {Promise<string|null>} The backup path or null if the source doesn't exist.
+ */
+async function backupAllData(targetDbPath, backupDir) {
+    if (!fs.existsSync(targetDbPath)) {
+        console.warn('[daily-update] No AllData.sqlite found to back up.');
+        return null;
+    }
+    fs.mkdirSync(backupDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupPath = path.join(backupDir, `AllData-${timestamp}.sqlite`);
+    console.log(`\nBacking up AllData.sqlite to ${backupPath}...`);
+    await new Promise((resolve, reject) => {
+        const reader = fs.createReadStream(targetDbPath);
+        const writer = fs.createWriteStream(backupPath);
+        reader.on('error', reject);
+        writer.on('error', reject);
+        writer.on('finish', resolve);
+        reader.pipe(writer);
+    });
+    console.log(' -> Backup completed successfully.');
+    return backupPath;
+}
+
+/**
  * Reads AllPricesToday.json and merges the new data with existing price history.
  * @param {string} pricesJsonPath Path to the AllPricesToday.json file.
  * @param {string} targetDbPath Path to the target SQLite database.
@@ -202,23 +365,52 @@ async function updatePriceHistory(pricesJsonPath, targetDbPath) {
 async function runDailyUpdate() {
     const startTime = Date.now();
     console.log(`[${new Date().toISOString()}] Starting daily data refresh pipeline...`);
-    log('Starting daily data refresh pipeline...');
+    const progress = await createProgressTracker().catch(() => null);
+    const track = async (method, ...args) => {
+        if (!progress || typeof progress[method] !== 'function') return;
+        try {
+            await progress[method](...args);
+        } catch (err) {
+            console.warn(`[daily-update] progress ${method} failed:`, err.message || err);
+        }
+    };
+    await log('Starting daily data refresh pipeline...');
 
+    let currentStage = null;
     try {
-        // --- Step 1: Download the latest files ---
-        log('Downloading latest data files from MTGJSON...');
-        await downloadFile(URLS.AllPrintings, SOURCE_DB_PATH);
-        log('AllPrintings.sqlite downloaded successfully.');
-        log('Downloading latest price data from MTGJSON...');
-        await downloadFile(URLS.AllPricesToday, TODAY_PRICES_PATH);
-        log('AllPricesToday.json downloaded successfully.');
+        currentStage = 'backup';
+        await track('markRunning', currentStage, 'Backing up existing AllData.sqlite...');
+        await log('Backing up existing AllData.sqlite...');
+        const backupPath = await backupAllData(TARGET_DB_PATH, BACKUP_DIR);
+        if (backupPath) {
+            console.log(` -> Backup created at ${backupPath}`);
+            await log(`Backup created at ${backupPath}`);
+            await track('markDone', currentStage, 'Backup created.');
+        } else {
+            console.log(' -> No existing AllData.sqlite found; skipping backup.');
+            await log('No existing AllData.sqlite found; skipping backup.');
+            await track('markDone', currentStage, 'No existing AllData.sqlite; skipped.');
+        }
 
-        // --- Step 2: Refresh the main database ---
+        currentStage = 'downloadPrintings';
+        await track('markRunning', currentStage, 'Downloading AllPrintings.sqlite...');
+        await log('Downloading latest data files from MTGJSON...');
+        await downloadFile(URLS.AllPrintings, SOURCE_DB_PATH);
+        await log('AllPrintings.sqlite downloaded successfully.');
+        await track('markDone', currentStage, 'AllPrintings.sqlite downloaded.');
+
+        currentStage = 'downloadPrices';
+        await track('markRunning', currentStage, 'Downloading AllPricesToday.json...');
+        await log('Downloading latest price data from MTGJSON...');
+        await downloadFile(URLS.AllPricesToday, TODAY_PRICES_PATH);
+        await log('AllPricesToday.json downloaded successfully.');
+        await track('markDone', currentStage, 'AllPricesToday.json downloaded.');
+
+        currentStage = 'refreshPrintings';
+        await track('markRunning', currentStage, 'Refreshing printings data...');
         console.log(`\nRefreshing printings data in ${TARGET_DB_PATH}...`);
         const db = new sqlite3.Database(TARGET_DB_PATH);
 
-        // --- THIS IS THE CRITICAL CHANGE ---
-        // This query now explicitly preserves your custom tables.
         const preservationPlaceholders = PRESERVED_DB_OBJECTS.map(() => '?').join(', ');
         const oldObjectsQuery = `
             SELECT name, type FROM sqlite_master 
@@ -253,7 +445,7 @@ async function runDailyUpdate() {
         });
 
         console.log(` -> Found ${tablesToCopy.length} tables to copy: ${tablesToCopy.join(', ')}`);
-        log(`Copying ${tablesToCopy.length} tables to main database...`);
+        await log(`Copying ${tablesToCopy.length} tables to main database...`);
         await new Promise((resolve, reject) => {
             db.serialize(() => {
                 db.run('BEGIN TRANSACTION');
@@ -266,24 +458,39 @@ async function runDailyUpdate() {
 
         await new Promise((res, rej) => db.run('DETACH DATABASE new_printings', e => e ? rej(e) : res()));
         await new Promise((res, rej) => db.close(e => e ? rej(e) : res()));
-        console.log('✅ Printings data refreshed successfully.');
+        console.log('Printings data refreshed successfully.');
+        await track('markDone', currentStage, 'Printings data refreshed.');
 
-        // --- Step 3: Update the price history ---
+        currentStage = 'mergePriceHistory';
+        await track('markRunning', currentStage, 'Merging daily price history...');
         await updatePriceHistory(TODAY_PRICES_PATH, TARGET_DB_PATH);
-        console.log('✅ Price history merged successfully.');
+        console.log('Price history merged successfully.');
+        await track('markDone', currentStage, 'Price history merged.');
+
+        currentStage = 'refreshInventoryPrices';
+        await track('markRunning', currentStage, 'Refreshing inventory market prices...');
         await refreshInventoryMarketPrices(TARGET_DB_PATH);
-        console.log('�o. Inventory market prices refreshed.');
-        log('Daily data refresh pipeline completed successfully.');
+        console.log('Inventory market prices refreshed.');
+        await track('markDone', currentStage, 'Inventory market prices refreshed.');
+
+        currentStage = 'consolidateInventory';
+        await track('markRunning', currentStage, 'Consolidating duplicate inventory rows...');
+        await consolidateInventory(TARGET_DB_PATH);
+        console.log('Inventory consolidation complete.');
+        await track('markDone', currentStage, 'Inventory consolidation complete.');
+
+        await track('finalize', 'Daily data refresh pipeline completed successfully.');
+        await log('Daily data refresh pipeline completed successfully.');
 
     } catch (error) {
-        console.error('\n❌ An error occurred during the daily update:', error);
-        log(`❌ An error occurred during the daily update: ${error.message}`);
+        console.error('\nX An error occurred during the daily update:', error);
+        await track('markError', currentStage || 'backup', `Failed during ${currentStage || 'startup'}: ${error.message || error}`);
+        await log(`X An error occurred during the daily update: ${error.message}`);
         process.exit(1);
     }
 
     const endTime = Date.now();
-    console.log(`\n🎉 Daily update finished successfully in ${((endTime - startTime) / 1000).toFixed(2)} seconds.`);
+    console.log(`\nDaily update finished successfully in ${((endTime - startTime) / 1000).toFixed(2)} seconds.`);
 }
 
 runDailyUpdate();
-
