@@ -30,6 +30,8 @@
     "dotenv": "^17.2.2",
     "esprima": "^4.0.1",
     "express": "^5.1.0",
+    "express-rate-limit": "^8.3.1",
+    "helmet": "^8.1.0",
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
     "playwright": "^1.55.1",

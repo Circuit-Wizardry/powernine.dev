@@ -136,19 +136,11 @@ const pdfStorage = multer.diskStorage({
 });
 const pdfUpload = multer({
     storage: pdfStorage,
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
     fileFilter: (req, file, cb) => {
-        // --- ADDED LOGGING ---
-        // This will print the exact file details the server sees.
-        console.log('[DEBUG] Multer file filter received:', {
-            fileName: file.originalname,
-            mimeType: file.mimetype
-        });
-        // --- END LOGGING ---
-
         if (file.mimetype === "application/pdf") {
             cb(null, true);
         } else {
-            // Reject the file with a specific error message.
             cb(new Error("File format not supported. Please upload a PDF."), false);
         }
     }
@@ -161,7 +153,7 @@ export default function(db, options = {}) {
     const uploadRoot = options.uploadRoot ? path.resolve(options.uploadRoot) : path.resolve('./private/uploads');
     let dailyUpdateProcess = null;
 
-    const csvUpload = multer({ storage: multer.memoryStorage() });
+    const csvUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
     const dbGet = (sql, params = []) => new Promise((resolve, reject) => {
         db.get(sql, params, (err, row) => {

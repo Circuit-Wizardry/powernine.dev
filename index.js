@@ -7,6 +7,8 @@ import { exec } from 'child_process';
 import apiRoutes from './utils/api.js';
 import 'dotenv/config';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import fs from 'fs';
 import { initializeCardNameCache } from './utils/card-data.js';
 import { startDynDnsUpdater } from './utils/dyn-dns.js';
@@ -28,6 +30,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.set('trust proxy', 1); // Trust Railway's reverse proxy for secure cookies/rate limiting
 const PORT = process.env.PORT || 3000;
 
 const APP_USER = process.env.APP_USER;
@@ -67,22 +70,72 @@ process.on('unhandledRejection', (reason) => {
 });
 
 // --- CORE MIDDLEWARE ---
-// 1. Enable CORS for all requests. This handles the OPTIONS preflight.
-app.use(cors()); 
-// 2. Enable JSON body parsing. This MUST come before any routes that use req.body.
-app.use(express.json());
 
+// Security headers (XSS, clickjacking, MIME sniffing, etc.)
+app.use(helmet({
+      contentSecurityPolicy: false // disable CSP to avoid breaking inline scripts in public/
+}));
+
+// CORS - restrict to your own domain(s)
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
+      ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+      : [];
+app.use(cors({
+      origin: (origin, callback) => {
+            // Allow requests with no origin (server-to-server, curl, mobile apps)
+            if (!origin || ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(origin)) {
+                  callback(null, true);
+            } else {
+                  callback(new Error('Not allowed by CORS'));
+            }
+      },
+      credentials: true
+}));
+
+// Body parsing
+app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false }));
 
 const sessionAuth = createSessionAuth({ username: APP_USER, password: APP_PASSWORD });
 app.use(sessionAuth.attachSession);
-app.use('/login', sessionAuth.loginRouter);
+
+// Rate limit login attempts: 10 attempts per 15 minutes per IP
+const loginLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 10,
+      message: { error: 'Too many login attempts, please try again later.' },
+      standardHeaders: true,
+      legacyHeaders: false
+});
+app.use('/login', loginLimiter, sessionAuth.loginRouter);
 app.use('/logout', sessionAuth.logoutRouter);
 
 // Health check endpoint (public, no auth required)
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 
-const PUBLIC_PATH_PREFIXES = ['/login', '/logout', '/health'];
+// --- TEMPORARY: Database upload endpoint (remove after initial import) ---
+app.put('/upload-db', (req, res) => {
+      const token = req.headers['x-upload-token'];
+      if (token !== process.env.DB_UPLOAD_TOKEN) {
+            return res.status(403).json({ error: 'Forbidden' });
+      }
+      const dest = path.join(__dirname, 'data', 'AllData.sqlite');
+      const writeStream = fs.createWriteStream(dest);
+      let bytes = 0;
+      req.on('data', (chunk) => { bytes += chunk.length; });
+      req.pipe(writeStream);
+      writeStream.on('finish', () => {
+            console.log(`[upload-db] Received ${(bytes / 1024 / 1024).toFixed(1)} MB`);
+            res.json({ ok: true, bytes });
+      });
+      writeStream.on('error', (err) => {
+            console.error('[upload-db] Write error:', err);
+            res.status(500).json({ error: err.message });
+      });
+});
+// --- END TEMPORARY ---
+
+const PUBLIC_PATH_PREFIXES = ['/login', '/logout', '/health', '/upload-db'];
 const isPublicPath = (req) => {
       const pathname = req.path || req.url || '';
       return PUBLIC_PATH_PREFIXES.some(prefix => pathname.startsWith(prefix));

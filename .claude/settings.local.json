@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install helmet express-rate-limit)",
+      "Bash(npm list -g @railway/cli)"
+    ]
+  }
+}
