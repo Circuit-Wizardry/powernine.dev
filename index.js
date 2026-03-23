@@ -116,7 +116,43 @@ app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 
 
 
-const PUBLIC_PATH_PREFIXES = ['/login', '/logout', '/health'];
+// --- TEMPORARY: Database upload endpoint (remove after initial import) ---
+app.put('/upload-db', (req, res) => {
+      const token = req.headers['x-upload-token'];
+      if (token !== process.env.DB_UPLOAD_TOKEN) {
+            return res.status(403).json({ error: 'Forbidden' });
+      }
+      const dest = path.join(__dirname, 'data', 'AllData.sqlite');
+      const writeStream = fs.createWriteStream(dest);
+      let bytes = 0;
+      req.on('data', (chunk) => { bytes += chunk.length; });
+      req.pipe(writeStream);
+      writeStream.on('finish', () => {
+            // Verify the SQLite file is valid
+            const testDb = new sqlite3.Database(dest, sqlite3.OPEN_READONLY, (err) => {
+                  if (err) {
+                        console.error('[upload-db] DB verification failed:', err.message);
+                        return res.status(500).json({ ok: false, bytes, error: 'Upload corrupted: ' + err.message });
+                  }
+                  testDb.get("PRAGMA integrity_check", (err, row) => {
+                        testDb.close();
+                        if (err || row?.integrity_check !== 'ok') {
+                              console.error('[upload-db] Integrity check failed:', err?.message || row);
+                              return res.status(500).json({ ok: false, bytes, error: 'Integrity check failed' });
+                        }
+                        console.log(`[upload-db] Received and verified ${(bytes / 1024 / 1024).toFixed(1)} MB`);
+                        res.json({ ok: true, bytes, integrity: 'ok' });
+                  });
+            });
+      });
+      writeStream.on('error', (err) => {
+            console.error('[upload-db] Write error:', err);
+            res.status(500).json({ error: err.message });
+      });
+});
+// --- END TEMPORARY ---
+
+const PUBLIC_PATH_PREFIXES = ['/login', '/logout', '/health', '/upload-db'];
 const isPublicPath = (req) => {
       const pathname = req.path || req.url || '';
       return PUBLIC_PATH_PREFIXES.some(prefix => pathname.startsWith(prefix));
