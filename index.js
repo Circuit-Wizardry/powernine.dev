@@ -29,6 +29,16 @@ import { startBuylistReporter, refreshInventoryBuylistSnapshot } from './utils/b
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// --- Ensure Playwright browsers are installed (survives redeploys) ---
+exec('npx playwright install chromium --with-deps', (error, stdout, stderr) => {
+      if (error) {
+            console.warn('[playwright] Browser install failed:', error.message);
+            if (stderr) console.warn('[playwright]', stderr.trim());
+      } else {
+            console.log('[playwright] Chromium browser ready.');
+      }
+});
+
 const app = express();
 app.set('trust proxy', 1); // Trust Railway's reverse proxy for secure cookies/rate limiting
 const PORT = process.env.PORT || 3000;
