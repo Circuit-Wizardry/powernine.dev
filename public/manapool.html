@@ -44,6 +44,10 @@
             <p class="status-message" id="status-message"></p>
         </section>
 
+        <div id="automation-lock-banner" class="automation-lock-banner" hidden>
+            Auto-pricing is active. Manual sync actions are disabled until you turn it off.
+        </div>
+
         <section class="mp-grid">
             <article class="mp-card quick-sync-card" id="quick-sync-card">
                 <h2>Quick Sync</h2>
@@ -67,12 +71,21 @@
                 </div>
             </article>
 
-            <article class="mp-card">
+            <article class="mp-card" id="inventory-sync-card">
                 <h2>Inventory Sync</h2>
-                <p>Pull the latest inventory snapshot from ManaPool or push your local powernine.dev inventory upstream.</p>
+                <p>Push your local powernine.dev inventory upstream to ManaPool.</p>
+                <div class="inventory-sync-controls">
+                    <label class="max-qty-field">
+                        Max quantity per card
+                        <input type="number" id="max-qty-per-card" min="1" step="1" placeholder="∞">
+                        <span class="hint">Leave blank for no limit.</span>
+                    </label>
+                    <div id="max-qty-warning" class="max-qty-warning" hidden>
+                        Max quantity changed. Push inventory to apply.
+                    </div>
+                </div>
                 <div class="button-row">
-                    <button type="button" class="primary-btn" id="pull-inventory-btn">Pull from ManaPool</button>
-                    <button type="button" class="secondary-btn" id="push-inventory-btn">Push Local Inventory</button>
+                    <button type="button" class="primary-btn" id="push-inventory-btn">Push Local Inventory</button>
                 </div>
             </article>
 
@@ -131,6 +144,45 @@
                     </thead>
                     <tbody id="discrepancy-table-body">
                         <tr><td colspan="7" class="empty">No discrepancies to display.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="mp-card">
+            <div class="section-header">
+                <h2>Margins</h2>
+                <button type="button" class="ghost-btn" id="refresh-margins-btn">Refresh</button>
+            </div>
+            <p class="eyebrow">See profit or loss on every ManaPool listing vs. what you paid.</p>
+            <div class="margin-controls">
+                <label class="margin-toggle">
+                    <input type="checkbox" id="margin-fees-toggle">
+                    <span>Include fees &amp; shipping</span>
+                </label>
+                <label class="margin-toggle">
+                    <input type="checkbox" id="margin-percent-toggle">
+                    <span>Show as %</span>
+                </label>
+            </div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Card</th>
+                            <th>Printing</th>
+                            <th>Qty</th>
+                            <th>Price Paid</th>
+                            <th>ManaPool Price</th>
+                            <th id="margin-fees-header" style="display:none">Fees &amp; Shipping</th>
+                            <th class="margin-sortable" id="margin-sort-header">
+                                Margin
+                                <button type="button" class="margin-sort-btn" id="margin-sort-btn" title="Toggle sort direction">&#x25BC;</button>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody id="margin-table-body">
+                        <tr><td colspan="6" class="empty">No margin data to display.</td></tr>
                     </tbody>
                 </table>
             </div>

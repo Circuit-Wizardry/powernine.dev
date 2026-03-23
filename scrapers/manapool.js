@@ -20,18 +20,27 @@ async function scrapeManaPoolListings(page, manaPoolUrl, foilType, targetConditi
     await page.waitForSelector('li .font-bold.text-green-700, li .font-bold.text-green-600', { timeout: 20000 });
     const collectAll = Boolean(options.collectAll);
 
+    const openSelectTrigger = async (trigger) => {
+        await trigger.scrollIntoViewIfNeeded({ timeout: 4000 }).catch(() => {});
+        await page.waitForTimeout(300).catch(() => {});
+        await trigger.click({ timeout: 3000 });
+        // Wait for the trigger itself to reflect the open state
+        await trigger.filter({ has: page.locator('[data-state="open"]') })
+            .or(trigger.locator('xpath=self::*[@data-state="open"]'))
+            .waitFor({ timeout: 3000 })
+            .catch(() => {});
+        // Then find the portal content
+        const content = page.locator('[data-select-content][data-state="open"], [role="listbox"][data-state="open"]').first();
+        await content.waitFor({ timeout: 3000 });
+        return content;
+    };
+
     const selectFromDropdown = async (triggerSelector, labels = []) => {
         if (!labels.length) return false;
         const trigger = page.locator(triggerSelector).first();
         if (!(await trigger.count())) return false;
-        const getOpenContent = () => page.locator('[data-select-content][data-state="open"], [role="listbox"][data-state="open"]').first();
         try {
-            await trigger.scrollIntoViewIfNeeded({ timeout: 4000 }).catch(() => {});
-            // give the page a moment to finish any layout/portal creation
-            await page.waitForTimeout(500).catch(() => {});
-            await trigger.click({ timeout: 2000, force: true });
-            const content = getOpenContent();
-            await content.waitFor({ timeout: 2000 });
+            const content = await openSelectTrigger(trigger);
 
             for (const label of labels) {
                 const labelRegex = new RegExp(`^\\s*${label.replace(/\s+/g, '\\s+')}\\s*$`, 'i');
@@ -58,7 +67,6 @@ async function scrapeManaPoolListings(page, manaPoolUrl, foilType, targetConditi
     const applyConditionFilters = async (triggerSelector, targetCondition) => {
         const trigger = page.locator(triggerSelector).first();
         if (!(await trigger.count())) return false;
-        const getOpenContent = () => page.locator('[data-select-content][data-state="open"], [role="listbox"][data-state="open"]').first();
         const upperTarget = String(targetCondition || 'NM').toUpperCase();
         const allowSet = new Set(
             upperTarget === 'DMG' ? ['NM', 'LP', 'MP', 'HP', 'DMG']
@@ -67,11 +75,7 @@ async function scrapeManaPoolListings(page, manaPoolUrl, foilType, targetConditi
                 : ['NM', 'LP'] // NM or LP treated the same
         );
         try {
-            await trigger.scrollIntoViewIfNeeded({ timeout: 4000 }).catch(() => {});
-            await page.waitForTimeout(250).catch(() => {});
-            await trigger.click({ timeout: 2000, force: true });
-            const content = getOpenContent();
-            await content.waitFor({ timeout: 2000 });
+            const content = await openSelectTrigger(trigger);
             const options = await content.locator('[data-select-item]').all();
             for (const option of options) {
                 const rawValue = (await option.getAttribute('data-value')) || '';

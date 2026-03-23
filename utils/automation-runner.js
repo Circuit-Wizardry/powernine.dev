@@ -7,7 +7,8 @@ import {
     getAutomationBaselines,
     snapshotAutomationBaselines,
     syncOrdersBeforePricing,
-    getInventoryLockState
+    getInventoryLockState,
+    restockBelowMaxQuantity
 } from './manapool-service.js';
 import { sendAutomationLifecycleWebhook } from './automation-alerts.js';
 import { publishAutomationRunSummary, updateAutomationBotState, logDiscordEvent, logDiscordConsole } from './discord-bot.js';
@@ -145,6 +146,16 @@ const runAutomationCycle = async () => {
                 runAt: startedAt,
                 durationMs: Date.now() - startedAtMs
             }).catch(() => {});
+        }
+        // Restock cards that dropped below max quantity threshold
+        try {
+            const restockResult = await restockBelowMaxQuantity(automationDb);
+            if (restockResult?.restocked > 0) {
+                console.log(`[automation] Restocked ${restockResult.restocked} cards back to max quantity.`);
+                logDiscordConsole(`[automation] Restocked ${restockResult.restocked} cards back to max quantity cap.`).catch(() => {});
+            }
+        } catch (restockError) {
+            console.warn('[automation] Restock check failed:', restockError.message || restockError);
         }
     } catch (error) {
         console.error('[automation] ManaPool automation run failed:', error);

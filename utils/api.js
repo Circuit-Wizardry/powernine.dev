@@ -22,6 +22,7 @@ import {
     pullOrdersFromManaPool,
     bulkAdjustPrices,
     getInventoryDiscrepancies,
+    getMarginData,
     importOrdersToTransactions,
     forceImportOrder,
     cleanupRemoteInventory,
@@ -941,7 +942,8 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
                 ? Number(req.body.priceOffsetCents)
                 : 1;
             const concurrency = Math.max(1, Math.min(Number(req.body?.concurrency) || 5, 10));
-            const result = await pushInventoryToManaPool(db, { priceOffsetCents, deleteMissing: true, concurrency });
+            const skipAutomation = Boolean(req.body?.skipAutomation);
+            const result = await pushInventoryToManaPool(db, { priceOffsetCents, deleteMissing: true, concurrency, skipAutomation });
             res.json(result);
         } catch (error) {
             console.error('[manapool] push inventory error:', error);
@@ -1084,6 +1086,16 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
         } catch (error) {
             console.error('[manapool] discrepancy error:', error);
             res.status(500).json({ error: error.message || 'Failed to load discrepancies.' });
+        }
+    });
+
+    router.get('/manapool/margins', async (_req, res) => {
+        try {
+            const data = await getMarginData(db);
+            res.json(data);
+        } catch (error) {
+            console.error('[manapool] margin data error:', error);
+            res.status(500).json({ error: error.message || 'Failed to load margin data.' });
         }
     });
 

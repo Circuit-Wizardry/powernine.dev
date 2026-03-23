@@ -70,11 +70,14 @@ const DEFAULT_AUTOMATION_STATE = {
     floorOverrides: [],
     exclusions: [],
     lastRunAt: null,
-    nextRunAt: null
+    nextRunAt: null,
+    maxQuantityPerCard: null
 };
 
 let automationState = { ...DEFAULT_AUTOMATION_STATE };
 let automationSettingsDirty = false;
+let maxQtyLastPushed = null; // tracks what max-qty value was last pushed with
+let maxQtyDirty = false;
 
 const escapeHtml = (value = '') => String(value)
     .replace(/&/g, '&amp;')
@@ -156,6 +159,8 @@ const normalizeAutomationState = (state = {}) => {
         : parseListField(normalized.exclusions || '');
     normalized.lastRunAt = normalized.lastRunAt || null;
     normalized.nextRunAt = normalized.nextRunAt || null;
+    const mqpc = Number(normalized.maxQuantityPerCard);
+    normalized.maxQuantityPerCard = Number.isFinite(mqpc) && mqpc >= 1 ? mqpc : null;
     return normalized;
 };
 
@@ -187,8 +192,33 @@ const formatFloorSummary = () => {
     return `Won't drop more than ${formatPercentValue(value)}% below the ${anchorNote}.`;
 };
 
+const LOCKABLE_BUTTON_IDS = ['quick-sync-btn', 'push-inventory-btn', 'pull-orders-btn', 'push-all-confirm-btn'];
+
+const updateActionLockout = () => {
+    const locked = Boolean(automationState.enabled) && !automationSettingsDirty;
+    LOCKABLE_BUTTON_IDS.forEach((id) => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        btn.disabled = locked;
+        if (locked) {
+            btn.title = 'Disabled while auto-pricing is active';
+        } else {
+            btn.removeAttribute('title');
+        }
+    });
+    const lockBanner = document.getElementById('automation-lock-banner');
+    if (lockBanner) {
+        if (locked) {
+            lockBanner.removeAttribute('hidden');
+        } else {
+            lockBanner.setAttribute('hidden', 'hidden');
+        }
+    }
+};
+
 const updateAutomationStatus = () => {
     if (!automationStatusEl) return;
+    updateActionLockout();
     if (automationSettingsDirty) {
         automationStatusEl.textContent = 'Unsaved automation changes. Save to apply.';
         return;
@@ -318,9 +348,13 @@ const loadAutomationSettings = async () => {
         automationState = { ...DEFAULT_AUTOMATION_STATE };
     } finally {
         automationSettingsDirty = false;
+        if (maxQtyLastPushed === null) {
+            maxQtyLastPushed = automationState.maxQuantityPerCard ?? null;
+        }
         applyAutomationStateToForm();
         applyAutomationStateToAdvancedForm();
         updateAutomationStatus();
+        applyMaxQtyFromState();
     }
 };
 
@@ -341,7 +375,8 @@ const persistAutomationSettings = async (overrides = {}, button = null, successM
                 discordWebhook: payload.discordWebhook,
                 dropThresholdPercent: payload.dropThresholdPercent,
                 floorOverrides: payload.floorOverrides,
-                exclusions: payload.exclusions
+                exclusions: payload.exclusions,
+                maxQuantityPerCard: payload.maxQuantityPerCard
             })
         }, successMessage);
         automationState = normalizeAutomationState(result?.settings || payload);
@@ -814,6 +849,10 @@ const pushAllInventory = async () => {
         await cleanupRemoteInventoryClient();
         addPushProgressStep(`cleanup-${Date.now()}`, 'Cleanup', 'Removed remote discrepancies', 'success');
         showToast(`Pushed ${successCount} of ${total} cards.`, 'info');
+        maxQtyLastPushed = automationState.maxQuantityPerCard ?? null;
+        maxQtyDirty = false;
+        const maxQtyWarning = document.getElementById('max-qty-warning');
+        if (maxQtyWarning) maxQtyWarning.setAttribute('hidden', 'hidden');
     } catch (error) {
         showToast(error.message || 'Bulk push failed.', 'error');
         appendLog(error.message || 'Bulk push failed.', 'error');
@@ -912,24 +951,11 @@ const initAutomationForm = () => {
 };
 
 const initEventListeners = () => {
-    const pullInventoryBtn = document.getElementById('pull-inventory-btn');
     const pushInventoryBtn = document.getElementById('push-inventory-btn');
     const pullOrdersBtn = document.getElementById('pull-orders-btn');
     const refreshStatusBtn = document.getElementById('refresh-status-btn');
     const refreshDiscrepanciesBtn = document.getElementById('refresh-discrepancies-btn');
     const clearLogBtn = document.getElementById('clear-log-btn');
-
-    pullInventoryBtn?.addEventListener('click', async () => {
-        if (!hasPulledOrdersThisSession) {
-            const proceed = window.confirm('Warning: Pulling inventory from ManaPool before pulling recent orders is dangerous and may cause desync. Continue anyway?');
-            if (!proceed) {
-                return;
-            }
-        }
-        await handleAction(pullInventoryBtn, '/api/manapool/inventory/pull', {}, 'Pulled inventory from ManaPool');
-        refreshDiscrepancies();
-        refreshStatus();
-    });
 
     pushInventoryBtn?.addEventListener('click', () => {
         openPushModal();
@@ -1023,11 +1049,68 @@ const setupPushModalBindings = () => {
     });
 };
 
+const initMaxQuantity = () => {
+    const maxQtyInput = document.getElementById('max-qty-per-card');
+    const maxQtyWarning = document.getElementById('max-qty-warning');
+    if (!maxQtyInput) return;
+
+    const updateMaxQtyWarning = () => {
+        if (!maxQtyWarning) return;
+        if (maxQtyDirty) {
+            maxQtyWarning.removeAttribute('hidden');
+        } else {
+            maxQtyWarning.setAttribute('hidden', 'hidden');
+        }
+    };
+
+    maxQtyInput.addEventListener('input', () => {
+        const newValue = maxQtyInput.value.trim() === '' ? null : parseInt(maxQtyInput.value, 10);
+        const currentSaved = automationState.maxQuantityPerCard ?? null;
+        maxQtyDirty = newValue !== currentSaved;
+        updateMaxQtyWarning();
+    });
+
+    maxQtyInput.addEventListener('change', async () => {
+        const rawValue = maxQtyInput.value.trim();
+        const newValue = rawValue === '' ? null : parseInt(rawValue, 10);
+        if (newValue !== null && (!Number.isFinite(newValue) || newValue < 1)) {
+            showToast('Max quantity must be at least 1 or left blank for unlimited.', 'error');
+            maxQtyInput.value = automationState.maxQuantityPerCard ?? '';
+            return;
+        }
+        try {
+            await persistAutomationSettings({ maxQuantityPerCard: newValue }, null, 'Max quantity per card updated.');
+            maxQtyDirty = newValue !== maxQtyLastPushed;
+            updateMaxQtyWarning();
+        } catch (error) {
+            // toast already shown
+        }
+    });
+};
+
+const applyMaxQtyFromState = () => {
+    const maxQtyInput = document.getElementById('max-qty-per-card');
+    if (!maxQtyInput) return;
+    const value = automationState.maxQuantityPerCard;
+    maxQtyInput.value = value ?? '';
+    maxQtyDirty = (value ?? null) !== maxQtyLastPushed;
+    const maxQtyWarning = document.getElementById('max-qty-warning');
+    if (maxQtyWarning) {
+        if (maxQtyDirty) {
+            maxQtyWarning.removeAttribute('hidden');
+        } else {
+            maxQtyWarning.setAttribute('hidden', 'hidden');
+        }
+    }
+};
+
 const initializeManapoolPage = () => {
     initEventListeners();
     initAutomationForm();
+    initMaxQuantity();
     setupPushModalBindings();
     initQuickSync();
+    initMargins();
     refreshStatus();
     refreshDiscrepancies();
 };
@@ -1089,10 +1172,6 @@ const addPushProgressStep = (id, title, detail, status = 'pending') => {
         </div>
     `;
     pushProgressStepsList.prepend(li);
-    const items = pushProgressStepsList.querySelectorAll('li');
-    if (items.length > 10) {
-        items[items.length - 1].remove();
-    }
     pushProgressEntries.set(entryId, li);
     return entryId;
 };
@@ -1120,6 +1199,170 @@ const updatePushProgressStep = (id, detail, status) => {
             }
         }
     }
+};
+
+/* ── Margins Table ──────────────────────────────────────── */
+
+const initMargins = () => {
+    const marginTableBody = document.getElementById('margin-table-body');
+    const refreshMarginsBtn = document.getElementById('refresh-margins-btn');
+    const feesToggle = document.getElementById('margin-fees-toggle');
+    const percentToggle = document.getElementById('margin-percent-toggle');
+    const sortBtn = document.getElementById('margin-sort-btn');
+    const feesHeader = document.getElementById('margin-fees-header');
+    if (!marginTableBody) return;
+
+    let marginData = [];
+    let includeFees = false;
+    let showPercent = false;
+    let sortAsc = false; // default descending (most profit first)
+
+    const MANAPOOL_FEE_RATE = 0.05;
+    const PAYMENT_FEE_RATE = 0.029;
+    const PAYMENT_FEE_FLAT = 0.30;
+    const SHIPPING_INCOME = 1.30;
+    const SHIPPING_COST = 1.25;
+    const FREE_SHIPPING_THRESHOLD = 45.00;
+
+    const calcFees = (salePrice) => {
+        const mpFee = salePrice * MANAPOOL_FEE_RATE;
+        const payFee = salePrice * PAYMENT_FEE_RATE + PAYMENT_FEE_FLAT;
+        const shippingNet = salePrice < FREE_SHIPPING_THRESHOLD
+            ? SHIPPING_INCOME - SHIPPING_COST
+            : -SHIPPING_COST;
+        return { mpFee, payFee, shippingCost: SHIPPING_COST, shippingIncome: salePrice < FREE_SHIPPING_THRESHOLD ? SHIPPING_INCOME : 0, total: mpFee + payFee - shippingNet };
+    };
+
+    const calcMargin = (row) => {
+        const salePrice = row.remotePriceCents / 100;
+        const cost = row.pricePaid;
+        if (!includeFees) return salePrice - cost;
+        const fees = calcFees(salePrice);
+        return salePrice - cost - fees.total;
+    };
+
+    const feeBreakdown = (row) => {
+        const salePrice = row.remotePriceCents / 100;
+        const cost = row.pricePaid;
+        const fees = calcFees(salePrice);
+        const net = salePrice - cost - fees.total;
+        const lines = [
+            `Sale: $${salePrice.toFixed(2)}`,
+            `Cost: -$${cost.toFixed(2)}`,
+            `ManaPool 5%: -$${fees.mpFee.toFixed(2)}`,
+            `Payment 2.9%+30¢: -$${fees.payFee.toFixed(2)}`,
+        ];
+        if (salePrice < FREE_SHIPPING_THRESHOLD) {
+            lines.push(`Buyer shipping: +$${SHIPPING_INCOME.toFixed(2)}`);
+        }
+        lines.push(`Materials: -$${SHIPPING_COST.toFixed(2)}`);
+        lines.push(`Net: $${net.toFixed(2)}`);
+        return lines.join('\n');
+    };
+
+    const formatMargin = (row) => {
+        const margin = calcMargin(row);
+        const salePrice = row.remotePriceCents / 100;
+        if (showPercent) {
+            if (!salePrice) return '0.0%';
+            const pct = (margin / salePrice) * 100;
+            return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
+        }
+        return margin >= 0 ? `+$${margin.toFixed(2)}` : `-$${Math.abs(margin).toFixed(2)}`;
+    };
+
+    const formatFeesCell = (row) => {
+        if (!includeFees) return '--';
+        const salePrice = row.remotePriceCents / 100;
+        const fees = calcFees(salePrice);
+        return `$${fees.total.toFixed(2)}`;
+    };
+
+    const sortedData = () => {
+        return [...marginData].sort((a, b) => {
+            const ma = calcMargin(a);
+            const mb = calcMargin(b);
+            return sortAsc ? ma - mb : mb - ma;
+        });
+    };
+
+    const renderMargins = () => {
+        const colCount = includeFees ? 7 : 6;
+        if (feesHeader) {
+            feesHeader.style.display = includeFees ? '' : 'none';
+        }
+        if (!marginData.length) {
+            marginTableBody.innerHTML = `<tr><td colspan="${colCount}" class="empty">No margin data to display.</td></tr>`;
+            return;
+        }
+        const sorted = sortedData();
+        marginTableBody.innerHTML = sorted.map(row => {
+            const salePrice = row.remotePriceCents / 100;
+            const margin = calcMargin(row);
+            const marginClass = margin >= 0 ? 'margin-positive' : 'margin-negative';
+            const printingLabel = [row.setCode?.toUpperCase(), row.collectorNumber ? `#${row.collectorNumber}` : null].filter(Boolean).join(' ');
+            const finishLabel = [
+                row.foilType && row.foilType !== 'normal' ? row.foilType : '',
+                row.condition || 'NM'
+            ].filter(Boolean).join(' · ');
+            const feesCell = includeFees
+                ? `<td class="margin-fees-cell" title="${escapeHtml(feeBreakdown(row))}">${formatFeesCell(row)}</td>`
+                : '<td class="margin-fees-cell" style="display:none"></td>';
+            const tooltip = includeFees ? ` title="${escapeHtml(feeBreakdown(row))}"` : '';
+            return `
+            <tr>
+                <td>
+                    <div class="printing-meta">
+                        <strong>${escapeHtml(row.name || 'Unknown')}</strong>
+                        <small>${escapeHtml(finishLabel)}</small>
+                    </div>
+                </td>
+                <td>${escapeHtml(printingLabel || 'N/A')}</td>
+                <td>${row.quantity}</td>
+                <td>${row.pricePaid > 0 ? `$${row.pricePaid.toFixed(2)}` : '--'}</td>
+                <td>${salePrice > 0 ? `$${salePrice.toFixed(2)}` : '--'}</td>
+                ${feesCell}
+                <td class="${marginClass}"${tooltip}>${formatMargin(row)}${includeFees ? ' <span class="margin-hint" title="' + escapeHtml(feeBreakdown(row)) + '">?</span>' : ''}</td>
+            </tr>`;
+        }).join('');
+    };
+
+    const loadMarginData = async () => {
+        const cols = includeFees ? 7 : 6;
+        marginTableBody.innerHTML = `<tr><td colspan="${cols}" class="empty">Loading margin data...</td></tr>`;
+        try {
+            const data = await fetchJson('/api/manapool/margins');
+            marginData = Array.isArray(data.margins) ? data.margins : [];
+            renderMargins();
+        } catch (error) {
+            marginTableBody.innerHTML = `<tr><td colspan="${cols}" class="empty">Failed to load margin data.</td></tr>`;
+            showToast(error.message || 'Failed to load margin data', 'error');
+        }
+    };
+
+    feesToggle?.addEventListener('change', () => {
+        includeFees = feesToggle.checked;
+        renderMargins();
+    });
+
+    percentToggle?.addEventListener('change', () => {
+        showPercent = percentToggle.checked;
+        renderMargins();
+    });
+
+    sortBtn?.addEventListener('click', () => {
+        sortAsc = !sortAsc;
+        sortBtn.innerHTML = sortAsc ? '&#x25B2;' : '&#x25BC;';
+        sortBtn.title = sortAsc ? 'Sorted ascending (least profit first)' : 'Sorted descending (most profit first)';
+        renderMargins();
+    });
+
+    refreshMarginsBtn?.addEventListener('click', loadMarginData);
+
+    // Hide fees column by default
+    if (feesHeader) feesHeader.style.display = 'none';
+
+    loadMarginData();
 };
 
 /* ── Quick Sync ─────────────────────────────────────────── */
@@ -1160,11 +1403,16 @@ const initQuickSync = () => {
                 openUnmatchedModal(orderResult.unmatchedOrders);
             }
 
-            // Step 2: Push Inventory
+            // Step 2: Push Inventory (skip expensive variant scraping; auto-pricer handles pricing)
             setStepState('push', 'active');
-            await fetchJson('/api/manapool/inventory/push', { method: 'POST', body: JSON.stringify({ priceOffsetCents: 1 }), headers: { 'Content-Type': 'application/json' } });
+            const pushResult = await fetchJson('/api/manapool/inventory/push', { method: 'POST', body: JSON.stringify({ priceOffsetCents: 1, skipAutomation: true }), headers: { 'Content-Type': 'application/json' } });
             setStepState('push', 'done');
-            appendLog('Quick Sync: pushed inventory to ManaPool', 'success');
+            const pushSummary = summarizeApiResult(pushResult, 'Pushed inventory to ManaPool');
+            appendLog(`Quick Sync: ${pushSummary}`, 'success');
+            maxQtyLastPushed = automationState.maxQuantityPerCard ?? null;
+            maxQtyDirty = false;
+            const maxQtyWarning = document.getElementById('max-qty-warning');
+            if (maxQtyWarning) maxQtyWarning.setAttribute('hidden', 'hidden');
 
             // Step 3: Enable Auto-Pricer
             setStepState('auto', 'active');

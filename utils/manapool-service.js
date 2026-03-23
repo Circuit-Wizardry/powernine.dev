@@ -542,6 +542,9 @@ export const fetchVariantFloorsForInventory = async (items = [], options = {}) =
 
 const buildPushPayload = async (items = [], options = {}) => {
     const filterCandidate = typeof options.filterCandidate === 'function' ? options.filterCandidate : null;
+    const maxQuantityPerCard = Number.isFinite(Number(options.maxQuantityPerCard)) && Number(options.maxQuantityPerCard) >= 1
+        ? Math.round(Number(options.maxQuantityPerCard))
+        : null;
     const candidates = items.filter(item => {
         if (!Number.isFinite(item.quantity) || item.quantity <= 0) return false;
         if (filterCandidate && !filterCandidate(item)) return false;
@@ -577,6 +580,8 @@ const buildPushPayload = async (items = [], options = {}) => {
             priceBasis = 100;
         }
         const priceCents = Math.max(1, Math.round(priceBasis * 100));
+        const rawQuantity = Math.max(0, Number(item.quantity) || 0);
+        const cappedQuantity = maxQuantityPerCard ? Math.min(rawQuantity, maxQuantityPerCard) : rawQuantity;
         const entry = {
             tcgplayer_id: Number(tcgId),
             language_id: LANGUAGE_ID,
@@ -584,7 +589,7 @@ const buildPushPayload = async (items = [], options = {}) => {
             condition_id: CONDITION_ID_MAP[String(item.condition || 'NM').toUpperCase()] || 'NM',
             base_price_cents: priceCents,
             price_cents: priceCents,
-            quantity: Math.max(0, Number(item.quantity) || 0)
+            quantity: cappedQuantity
         };
         const context = {
             inventory: { ...item },
@@ -602,7 +607,7 @@ const buildPushPayload = async (items = [], options = {}) => {
                 const weighted = Math.round(
                     ((existingEntry.price_cents || 0) * existingQty + (entry.price_cents || 0) * incomingQty) / totalQty
                 );
-                existingEntry.quantity = totalQty;
+                existingEntry.quantity = maxQuantityPerCard ? Math.min(totalQty, maxQuantityPerCard) : totalQty;
                 existingEntry.price_cents = Math.max(1, weighted || existingEntry.price_cents);
                 existingEntry.base_price_cents = existingEntry.price_cents;
                 existingContext.inventory.quantity = totalQty;
@@ -709,7 +714,8 @@ const pushInventoryRows = async (items = [], options = {}) => {
     const filterCandidate = automationOptions?.exclusionMatcher
         ? (item) => !automationOptions.exclusionMatcher(item)
         : null;
-    const { payload, contexts, missing } = await buildPushPayload(items, { filterCandidate });
+    const maxQuantityPerCard = options.maxQuantityPerCard ?? null;
+    const { payload, contexts, missing } = await buildPushPayload(items, { filterCandidate, maxQuantityPerCard });
     const lockState = getInventoryLockState();
     let automationCardsUpdated = 0;
     let automationValueDeltaCents = 0;
@@ -1395,14 +1401,22 @@ export async function pushInventoryToManaPool(db, options = {}) {
     const localInventory = await getLocalInventoryRows(db);
     const concurrency = Math.max(1, Math.min(Number(options.concurrency) || 5, 10));
     let automation = options.automation || null;
-    if (!automation) {
+    if (!automation && !options.skipAutomation) {
         automation = await buildUndercutAutomationContext(localInventory, options.priceOffsetCents ?? 1, { concurrency });
+    }
+    let maxQuantityPerCard = options.maxQuantityPerCard ?? null;
+    if (maxQuantityPerCard === null) {
+        try {
+            const settings = await getAutomationSettings(db);
+            maxQuantityPerCard = settings.maxQuantityPerCard ?? null;
+        } catch { /* ignore */ }
     }
     return pushInventoryRows(localInventory, {
         priceOffsetCents: options.priceOffsetCents ?? 1,
         deleteMissing: options.deleteMissing ?? true,
         notifyAutomation: Boolean(options.notifyAutomation),
-        automation
+        automation,
+        maxQuantityPerCard
     });
 }
 
@@ -1427,11 +1441,19 @@ export async function pushInventoryItemsToManaPool(db, inventoryIds = [], option
         const concurrency = Math.max(1, Math.min(Number(options?.concurrency) || 5, 10));
         automation = await buildUndercutAutomationContext(rows, options?.priceOffsetCents ?? 1, { concurrency });
     }
+    let maxQuantityPerCard = options?.maxQuantityPerCard ?? null;
+    if (maxQuantityPerCard === null) {
+        try {
+            const settings = await getAutomationSettings(db);
+            maxQuantityPerCard = settings.maxQuantityPerCard ?? null;
+        } catch { /* ignore */ }
+    }
     return pushInventoryRows(rows, {
         priceOffsetCents: options?.priceOffsetCents,
         deleteMissing: false,
         notifyAutomation: Boolean(options?.notifyAutomation),
-        automation
+        automation,
+        maxQuantityPerCard
     });
 }
 
@@ -1473,6 +1495,69 @@ export async function cleanupRemoteInventory(db) {
     return { deleted };
 }
 
+export async function restockBelowMaxQuantity(db) {
+    let settings;
+    try {
+        settings = await getAutomationSettings(db);
+    } catch { return { restocked: 0 }; }
+    const maxQty = settings?.maxQuantityPerCard;
+    if (!maxQty || !Number.isFinite(maxQty) || maxQty < 1) return { restocked: 0 };
+
+    const localInventory = await getLocalInventoryRows(db);
+    const { payload, contexts } = await buildPushPayload(localInventory, { maxQuantityPerCard: maxQty });
+    if (!payload.length) return { restocked: 0 };
+
+    let remoteMap = new Map();
+    try {
+        const snapshot = await getCachedRemoteInventorySnapshot();
+        if (snapshot?.items?.length) {
+            remoteMap = buildRemoteListingMap(snapshot.items);
+        }
+    } catch { return { restocked: 0 }; }
+
+    const restockEntries = [];
+    payload.forEach((entry, index) => {
+        const context = contexts[index];
+        const localQty = Number(context?.inventory?.quantity) || 0;
+        const expectedQty = Math.min(localQty, maxQty);
+        const key = entryKey(entry);
+        const remoteListing = remoteMap.get(key);
+        const remoteQty = Number(remoteListing?.quantity) || 0;
+        if (remoteQty < expectedQty && localQty > remoteQty) {
+            restockEntries.push({
+                ...entry,
+                quantity: expectedQty,
+                price_cents: remoteListing?.priceCents || entry.price_cents
+            });
+        }
+    });
+
+    if (!restockEntries.length) return { restocked: 0 };
+
+    if (!hasCredentials()) {
+        return { restocked: 0, message: 'No credentials - dry run only.' };
+    }
+
+    let restocked = 0;
+    for (const entry of restockEntries) {
+        try {
+            await delay(REMOTE_LOOKUP_DELAY_MS);
+            const updatePayload = {
+                tcgplayer_id: entry.tcgplayer_id,
+                language_id: entry.language_id,
+                finish_id: entry.finish_id,
+                condition_id: entry.condition_id,
+                quantity: entry.quantity,
+                price_cents: entry.price_cents
+            };
+            await manapoolClient.put('/seller/inventory', updatePayload, { headers: authHeaders() });
+            restocked += 1;
+        } catch (error) {
+            console.warn(`[manapool] restock failed for tcg_id=${entry.tcgplayer_id}:`, error.message);
+        }
+    }
+    return { restocked };
+}
 
 const normalizeOrdersResponse = (payload) => {
     if (!payload) return [];
@@ -1863,6 +1948,11 @@ export async function getInventoryDiscrepancies(db) {
     const remotePayload = await pullInventoryFromManaPool();
     const remoteInventory = remotePayload.items || [];
     const remoteMap = buildRemoteListingMap(remoteInventory);
+    let maxQuantityPerCard = null;
+    try {
+        const settings = await getAutomationSettings(db);
+        maxQuantityPerCard = settings.maxQuantityPerCard ?? null;
+    } catch { /* ignore */ }
     const usedRemoteKeys = new Set();
     const collectorMatches = (a, b) => {
         if (!a || !b) return true;
@@ -1920,14 +2010,15 @@ export async function getInventoryDiscrepancies(db) {
         const localQuantity = Number(item.quantity) || 0;
         const remoteQuantity = Number(remoteItem.quantity) || 0;
         const remotePrice = typeof remoteItem.priceCents === 'number' ? remoteItem.priceCents / 100 : 0;
-        if (localQuantity !== remoteQuantity || Math.abs(remotePrice - localPriceValue) > 0.01) {
+        const expectedRemoteQty = maxQuantityPerCard ? Math.min(localQuantity, maxQuantityPerCard) : localQuantity;
+        if (expectedRemoteQty !== remoteQuantity || Math.abs(remotePrice - localPriceValue) > 0.01) {
             discrepancies.push({
                 name: item.name,
                 setCode: item.setCode,
                 collectorNumber: item.collectorNumber || '',
                 foilType: item.foilType || 'normal',
                 condition: item.condition || 'NM',
-                localQuantity,
+                localQuantity: expectedRemoteQty,
                 remoteQuantity,
                 localPrice: formattedLocalPrice,
                 remotePrice: remotePrice ? `$${remotePrice.toFixed(2)}` : '-',
@@ -1959,6 +2050,70 @@ export async function getInventoryDiscrepancies(db) {
             return rowFlag(b) - rowFlag(a);
         });
     return { discrepancies: filtered };
+}
+
+export async function getMarginData(db) {
+    const localInventory = await getLocalInventoryRows(db);
+    const remotePayload = await pullInventoryFromManaPool();
+    const remoteInventory = remotePayload.items || [];
+    const remoteMap = buildRemoteListingMap(remoteInventory);
+    const usedRemoteKeys = new Set();
+
+    const collectorMatches = (a, b) => {
+        if (!a || !b) return true;
+        return String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+    };
+
+    const matchRemoteListing = (item) => {
+        if (item.tcgplayerId) {
+            const key = entryKey({
+                tcgplayer_id: Number(item.tcgplayerId),
+                language_id: LANGUAGE_ID,
+                finish_id: FINISH_ID_MAP[item.foilType] || 'NF',
+                condition_id: item.condition || 'NM'
+            });
+            const listing = remoteMap.get(key);
+            if (listing && collectorMatches(item.collectorNumber, listing.collectorNumber)) return { listing, key };
+        }
+        if (item.scryfallId) {
+            for (const [key, listing] of remoteMap.entries()) {
+                if (
+                    listing.scryfallId === item.scryfallId &&
+                    listing.finish_id === (FINISH_ID_MAP[item.foilType] || 'NF') &&
+                    listing.condition_id === (item.condition || 'NM') &&
+                    collectorMatches(item.collectorNumber, listing.collectorNumber)
+                ) {
+                    return { listing, key };
+                }
+            }
+        }
+        return null;
+    };
+
+    const rows = [];
+    localInventory.forEach((item) => {
+        const match = matchRemoteListing(item);
+        if (!match) return;
+        usedRemoteKeys.add(match.key);
+        const remote = match.listing;
+        const pricePaid = Number(item.pricePaid) || 0;
+        const remotePriceCents = typeof remote.priceCents === 'number' ? remote.priceCents : 0;
+        const quantity = Number(item.quantity) || 0;
+        if (quantity <= 0 && (Number(remote.quantity) || 0) <= 0) return;
+        rows.push({
+            name: item.name,
+            setCode: item.setCode || '',
+            collectorNumber: item.collectorNumber || '',
+            foilType: item.foilType || 'normal',
+            condition: item.condition || 'NM',
+            quantity,
+            remoteQuantity: Number(remote.quantity) || 0,
+            pricePaid,
+            remotePriceCents,
+        });
+    });
+
+    return { margins: rows };
 }
 
 const computeSuggestedPrice = (strategy, item) => {
@@ -2009,7 +2164,8 @@ const DEFAULT_AUTOMATION_SETTINGS = {
     floorOverrides: [],
     exclusions: [],
     lastRunAt: null,
-    nextRunAt: null
+    nextRunAt: null,
+    maxQuantityPerCard: null
 };
 
 const VALID_FLOOR_TYPES = new Set(['percent', 'absolute']);
@@ -2054,12 +2210,16 @@ const ensureAutomationSettingsTable = (db) => new Promise((resolve, reject) => {
             exclusions TEXT,
             lastRunAt TEXT,
             nextRunAt TEXT,
+            maxQuantityPerCard INTEGER,
             createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
             updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
         )
     `, (err) => {
         if (err) return reject(err);
-        resolve();
+        // Migrate existing tables that lack the maxQuantityPerCard column
+        db.run(`ALTER TABLE ${AUTOMATION_SETTINGS_TABLE} ADD COLUMN maxQuantityPerCard INTEGER`, () => {
+            resolve();
+        });
     });
 });
 
@@ -2171,6 +2331,11 @@ const normalizeAutomationSettingsPayload = (input = {}) => {
     const nextRunAt = input.nextRunAt ?? normalized.nextRunAt;
     normalized.nextRunAt = typeof nextRunAt === 'string' && nextRunAt.trim() ? nextRunAt : null;
 
+    if (typeof input.maxQuantityPerCard !== 'undefined') {
+        const mqpc = Number(input.maxQuantityPerCard);
+        normalized.maxQuantityPerCard = Number.isFinite(mqpc) && mqpc >= 1 ? Math.round(mqpc) : null;
+    }
+
     return normalized;
 };
 
@@ -2193,6 +2358,8 @@ const mapAutomationRowToSettings = (row = {}) => {
     mapped.exclusions = parseStoredAutomationList(row.exclusions);
     mapped.lastRunAt = row.lastRunAt || null;
     mapped.nextRunAt = row.nextRunAt || null;
+    const mqpc = Number(row.maxQuantityPerCard);
+    mapped.maxQuantityPerCard = Number.isFinite(mqpc) && mqpc >= 1 ? mqpc : null;
     return mapped;
 };
 
@@ -2209,7 +2376,8 @@ const persistAutomationSettings = (db, settings) => new Promise((resolve, reject
         serializeAutomationList(settings.floorOverrides),
         serializeAutomationList(settings.exclusions),
         settings.lastRunAt,
-        settings.nextRunAt
+        settings.nextRunAt,
+        settings.maxQuantityPerCard ?? null
     ];
     const sql = `
         INSERT INTO ${AUTOMATION_SETTINGS_TABLE} (
@@ -2224,8 +2392,9 @@ const persistAutomationSettings = (db, settings) => new Promise((resolve, reject
             floorOverrides,
             exclusions,
             lastRunAt,
-            nextRunAt
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            nextRunAt,
+            maxQuantityPerCard
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             enabled=excluded.enabled,
             intervalMinutes=excluded.intervalMinutes,
@@ -2238,6 +2407,7 @@ const persistAutomationSettings = (db, settings) => new Promise((resolve, reject
             exclusions=excluded.exclusions,
             lastRunAt=excluded.lastRunAt,
             nextRunAt=excluded.nextRunAt,
+            maxQuantityPerCard=excluded.maxQuantityPerCard,
             updatedAt=CURRENT_TIMESTAMP
     `;
     db.run(sql, params, (err) => {
