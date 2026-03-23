@@ -7,7 +7,7 @@ import { logDiscordConsole } from './discord-bot.js';
 import { updateBuylistEmbed } from './discord-bot.js';
 
 const PUBLIC_REPORT_PATH = path.join(process.cwd(), 'public', 'buylist-report.json');
-const REPORT_INTERVAL_MS = 180 * 60 * 1000; // 3 hours
+const REPORT_INTERVAL_MS = 60 * 60 * 1000 * 16;
 let beforeBuildHook = null;
 const DEFAULT_TARGET_PERCENT = 0.85;
 const progressState = {

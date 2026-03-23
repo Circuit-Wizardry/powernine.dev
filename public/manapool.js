@@ -71,7 +71,8 @@ const DEFAULT_AUTOMATION_STATE = {
     exclusions: [],
     lastRunAt: null,
     nextRunAt: null,
-    maxQuantityPerCard: null
+    maxQuantityPerCard: null,
+    marginCapCents: null
 };
 
 let automationState = { ...DEFAULT_AUTOMATION_STATE };
@@ -161,6 +162,8 @@ const normalizeAutomationState = (state = {}) => {
     normalized.nextRunAt = normalized.nextRunAt || null;
     const mqpc = Number(normalized.maxQuantityPerCard);
     normalized.maxQuantityPerCard = Number.isFinite(mqpc) && mqpc >= 1 ? mqpc : null;
+    const mcc = Number(normalized.marginCapCents);
+    normalized.marginCapCents = Number.isFinite(mcc) ? mcc : null;
     return normalized;
 };
 
@@ -181,6 +184,8 @@ const applyAutomationStateToAdvancedForm = () => {
     if (automationDropThresholdInput) automationDropThresholdInput.value = automationState.dropThresholdPercent;
     if (automationFloorOverridesInput) automationFloorOverridesInput.value = formatListField(automationState.floorOverrides);
     if (automationExclusionsInput) automationExclusionsInput.value = formatListField(automationState.exclusions);
+    const automationMarginCapInput = document.getElementById('automation-margin-cap');
+    if (automationMarginCapInput) automationMarginCapInput.value = automationState.marginCapCents ?? '';
 };
 
 const formatFloorSummary = () => {
@@ -355,6 +360,7 @@ const loadAutomationSettings = async () => {
         applyAutomationStateToAdvancedForm();
         updateAutomationStatus();
         applyMaxQtyFromState();
+        applyMarginCapFromState();
     }
 };
 
@@ -376,7 +382,8 @@ const persistAutomationSettings = async (overrides = {}, button = null, successM
                 dropThresholdPercent: payload.dropThresholdPercent,
                 floorOverrides: payload.floorOverrides,
                 exclusions: payload.exclusions,
-                maxQuantityPerCard: payload.maxQuantityPerCard
+                maxQuantityPerCard: payload.maxQuantityPerCard,
+                marginCapCents: payload.marginCapCents
             })
         }, successMessage);
         automationState = normalizeAutomationState(result?.settings || payload);
@@ -918,6 +925,9 @@ const initAutomationForm = () => {
             showToast('Drop threshold needs to be at least 1%.', 'error');
             return;
         }
+        const marginCapRaw = document.getElementById('automation-margin-cap')?.value;
+        const marginCapVal = Number(marginCapRaw);
+        const marginCapCents = marginCapRaw !== '' && Number.isFinite(marginCapVal) ? Math.round(marginCapVal) : null;
         const overrides = {
             intervalMinutes: Math.round(interval),
             strategy,
@@ -926,7 +936,8 @@ const initAutomationForm = () => {
             discordWebhook: automationDiscordWebhookInput?.value?.trim() || '',
             dropThresholdPercent: dropPercent,
             floorOverrides: parseListField(automationFloorOverridesInput?.value),
-            exclusions: parseListField(automationExclusionsInput?.value)
+            exclusions: parseListField(automationExclusionsInput?.value),
+            marginCapCents
         };
         try {
             await persistAutomationSettings(overrides, submitter, 'Advanced automation settings saved.');
@@ -1047,6 +1058,23 @@ const setupPushModalBindings = () => {
         if (!pushModalInventory.length) return;
         renderPushInventoryRows(pushModalInventory);
     });
+    const pushMarginCapInput = document.getElementById('push-margin-cap');
+    pushMarginCapInput?.addEventListener('change', async () => {
+        const rawValue = pushMarginCapInput.value.trim();
+        const newValue = rawValue === '' ? null : Math.round(Number(rawValue));
+        if (newValue !== null && !Number.isFinite(newValue)) {
+            showToast('Margin cap must be a number or left blank for no limit.', 'error');
+            pushMarginCapInput.value = automationState.marginCapCents ?? '';
+            return;
+        }
+        try {
+            await persistAutomationSettings({ marginCapCents: newValue }, null, 'Margin cap updated.');
+            const mainInput = document.getElementById('margin-cap-per-card');
+            if (mainInput) mainInput.value = newValue ?? '';
+        } catch (error) {
+            // toast already shown
+        }
+    });
 };
 
 const initMaxQuantity = () => {
@@ -1088,6 +1116,35 @@ const initMaxQuantity = () => {
     });
 };
 
+const initMarginCap = () => {
+    const marginCapInput = document.getElementById('margin-cap-per-card');
+    if (!marginCapInput) return;
+
+    marginCapInput.addEventListener('change', async () => {
+        const rawValue = marginCapInput.value.trim();
+        const newValue = rawValue === '' ? null : Math.round(Number(rawValue));
+        if (newValue !== null && !Number.isFinite(newValue)) {
+            showToast('Margin cap must be a number or left blank for no limit.', 'error');
+            marginCapInput.value = automationState.marginCapCents ?? '';
+            return;
+        }
+        try {
+            await persistAutomationSettings({ marginCapCents: newValue }, null, 'Margin cap updated.');
+            const pushInput = document.getElementById('push-margin-cap');
+            if (pushInput) pushInput.value = newValue ?? '';
+        } catch (error) {
+            // toast already shown
+        }
+    });
+};
+
+const applyMarginCapFromState = () => {
+    const marginCapInput = document.getElementById('margin-cap-per-card');
+    if (marginCapInput) marginCapInput.value = automationState.marginCapCents ?? '';
+    const pushMarginCapInput = document.getElementById('push-margin-cap');
+    if (pushMarginCapInput) pushMarginCapInput.value = automationState.marginCapCents ?? '';
+};
+
 const applyMaxQtyFromState = () => {
     const maxQtyInput = document.getElementById('max-qty-per-card');
     if (!maxQtyInput) return;
@@ -1108,6 +1165,7 @@ const initializeManapoolPage = () => {
     initEventListeners();
     initAutomationForm();
     initMaxQuantity();
+    initMarginCap();
     setupPushModalBindings();
     initQuickSync();
     initMargins();

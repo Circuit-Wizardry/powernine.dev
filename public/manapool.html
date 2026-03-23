@@ -80,6 +80,11 @@
                         <input type="number" id="max-qty-per-card" min="1" step="1" placeholder="∞">
                         <span class="hint">Leave blank for no limit.</span>
                     </label>
+                    <label class="max-qty-field">
+                        Min margin after fees (cents)
+                        <input type="number" id="margin-cap-per-card" step="1" placeholder="No limit">
+                        <span class="hint">Won't price below this net margin after fees &amp; shipping.</span>
+                    </label>
                     <div id="max-qty-warning" class="max-qty-warning" hidden>
                         Max quantity changed. Push inventory to apply.
                     </div>
@@ -237,6 +242,11 @@
                         <input type="text" id="automation-discord-webhook" placeholder="https://discord.com/api/webhooks/...">
                     </label>
                     <label>
+                        Min margin after fees (cents)
+                        <input type="number" id="automation-margin-cap" step="1" placeholder="No limit">
+                        <span class="hint">Won't price below this net margin after fees &amp; shipping.</span>
+                    </label>
+                    <label>
                         Ping when a card drops by (%)
                         <input type="number" id="automation-drop-threshold" min="1" max="100" step="1" value="15">
                     </label>
@@ -303,6 +313,11 @@
                 <label class="offset-field">
                     Cents under ManaPool low
                     <input type="number" id="price-offset" min="0" step="1" value="1">
+                </label>
+                <label class="offset-field">
+                    Min margin after fees (cents)
+                    <input type="number" id="push-margin-cap" step="1" placeholder="No limit">
+                    <span class="hint">Raise price if net margin (after fees &amp; shipping) would fall below this.</span>
                 </label>
                 <div class="push-modal-actions">
                     <button type="button" class="primary-btn" id="push-all-confirm-btn">Push All Cards</button>

@@ -704,6 +704,37 @@ const entryKey = (entry) => [
     entry.condition_id
 ].join('|');
 
+const MANAPOOL_FEE_RATE = 0.05;
+const PAYMENT_FEE_RATE = 0.029;
+const PAYMENT_FEE_FLAT_CENTS = 30;
+const SHIPPING_INCOME_CENTS = 130;
+const SHIPPING_COST_CENTS = 125;
+const FREE_SHIPPING_THRESHOLD_CENTS = 4500;
+
+const calcFeesAfterMarginCents = (salePriceCents, costCents) => {
+    const mpFee = Math.round(salePriceCents * MANAPOOL_FEE_RATE);
+    const payFee = Math.round(salePriceCents * PAYMENT_FEE_RATE) + PAYMENT_FEE_FLAT_CENTS;
+    const shippingNet = salePriceCents < FREE_SHIPPING_THRESHOLD_CENTS
+        ? SHIPPING_INCOME_CENTS - SHIPPING_COST_CENTS
+        : -SHIPPING_COST_CENTS;
+    const totalFees = mpFee + payFee - shippingNet;
+    return salePriceCents - costCents - totalFees;
+};
+
+const calcMinPriceForMarginCap = (costCents, marginCapCents) => {
+    // margin = sale - cost - fees
+    // fees = sale * (MP + PAY) + PAY_FLAT - shippingNet
+    // margin = sale - cost - sale*(MP+PAY) - PAY_FLAT + shippingNet
+    // margin = sale*(1 - MP - PAY) - cost - PAY_FLAT + shippingNet
+    // sale = (margin + cost + PAY_FLAT - shippingNet) / (1 - MP - PAY)
+    // We solve for the conservative case (above free-shipping threshold: shippingNet = -SHIPPING_COST)
+    const combinedRate = MANAPOOL_FEE_RATE + PAYMENT_FEE_RATE;
+    const shippingNet = -SHIPPING_COST_CENTS; // worst case
+    const numerator = marginCapCents + costCents + PAYMENT_FEE_FLAT_CENTS - shippingNet;
+    const minPrice = Math.ceil(numerator / (1 - combinedRate));
+    return Math.max(1, minPrice);
+};
+
 const pushInventoryRows = async (items = [], options = {}) => {
     const priceOffsetCents = Number.isFinite(options.priceOffsetCents) ? Number(options.priceOffsetCents) : 1;
     const deleteMissing = Boolean(options.deleteMissing);
@@ -715,6 +746,8 @@ const pushInventoryRows = async (items = [], options = {}) => {
         ? (item) => !automationOptions.exclusionMatcher(item)
         : null;
     const maxQuantityPerCard = options.maxQuantityPerCard ?? null;
+    const marginCapCentsRaw = Number(options.marginCapCents);
+    const marginCapCents = Number.isFinite(marginCapCentsRaw) ? marginCapCentsRaw : null;
     const { payload, contexts, missing } = await buildPushPayload(items, { filterCandidate, maxQuantityPerCard });
     const lockState = getInventoryLockState();
     let automationCardsUpdated = 0;
@@ -974,6 +1007,24 @@ const pushInventoryRows = async (items = [], options = {}) => {
                     context.__automationReason = context.__automationReason
                         ? `${context.__automationReason}; ${enforcedNote}`
                         : enforcedNote;
+                }
+            }
+        }
+        if (marginCapCents !== null && context?.inventory) {
+            const costCents = Math.round((Number(context.inventory.pricePaid) || 0) * 100);
+            if (costCents > 0) {
+                const currentMargin = calcFeesAfterMarginCents(entry.price_cents, costCents);
+                if (currentMargin < marginCapCents) {
+                    const minPrice = calcMinPriceForMarginCap(costCents, marginCapCents);
+                    if (minPrice > entry.price_cents) {
+                        entry.price_cents = minPrice;
+                        if (context) {
+                            const capNote = `Margin cap raised price to $${(minPrice / 100).toFixed(2)} (min margin ${(marginCapCents / 100).toFixed(2)})`;
+                            context.__automationReason = context.__automationReason
+                                ? `${context.__automationReason}; ${capNote}`
+                                : capNote;
+                        }
+                    }
                 }
             }
         }
@@ -1405,10 +1456,12 @@ export async function pushInventoryToManaPool(db, options = {}) {
         automation = await buildUndercutAutomationContext(localInventory, options.priceOffsetCents ?? 1, { concurrency });
     }
     let maxQuantityPerCard = options.maxQuantityPerCard ?? null;
-    if (maxQuantityPerCard === null) {
+    let marginCapCents = options.marginCapCents ?? null;
+    if (maxQuantityPerCard === null || marginCapCents === null) {
         try {
             const settings = await getAutomationSettings(db);
-            maxQuantityPerCard = settings.maxQuantityPerCard ?? null;
+            if (maxQuantityPerCard === null) maxQuantityPerCard = settings.maxQuantityPerCard ?? null;
+            if (marginCapCents === null) marginCapCents = settings.marginCapCents ?? null;
         } catch { /* ignore */ }
     }
     return pushInventoryRows(localInventory, {
@@ -1416,7 +1469,8 @@ export async function pushInventoryToManaPool(db, options = {}) {
         deleteMissing: options.deleteMissing ?? true,
         notifyAutomation: Boolean(options.notifyAutomation),
         automation,
-        maxQuantityPerCard
+        maxQuantityPerCard,
+        marginCapCents
     });
 }
 
@@ -1442,10 +1496,12 @@ export async function pushInventoryItemsToManaPool(db, inventoryIds = [], option
         automation = await buildUndercutAutomationContext(rows, options?.priceOffsetCents ?? 1, { concurrency });
     }
     let maxQuantityPerCard = options?.maxQuantityPerCard ?? null;
-    if (maxQuantityPerCard === null) {
+    let marginCapCents = options?.marginCapCents ?? null;
+    if (maxQuantityPerCard === null || marginCapCents === null) {
         try {
             const settings = await getAutomationSettings(db);
-            maxQuantityPerCard = settings.maxQuantityPerCard ?? null;
+            if (maxQuantityPerCard === null) maxQuantityPerCard = settings.maxQuantityPerCard ?? null;
+            if (marginCapCents === null) marginCapCents = settings.marginCapCents ?? null;
         } catch { /* ignore */ }
     }
     return pushInventoryRows(rows, {
@@ -1453,7 +1509,8 @@ export async function pushInventoryItemsToManaPool(db, inventoryIds = [], option
         deleteMissing: false,
         notifyAutomation: Boolean(options?.notifyAutomation),
         automation,
-        maxQuantityPerCard
+        maxQuantityPerCard,
+        marginCapCents
     });
 }
 
@@ -2165,7 +2222,8 @@ const DEFAULT_AUTOMATION_SETTINGS = {
     exclusions: [],
     lastRunAt: null,
     nextRunAt: null,
-    maxQuantityPerCard: null
+    maxQuantityPerCard: null,
+    marginCapCents: null
 };
 
 const VALID_FLOOR_TYPES = new Set(['percent', 'absolute']);
@@ -2216,9 +2274,11 @@ const ensureAutomationSettingsTable = (db) => new Promise((resolve, reject) => {
         )
     `, (err) => {
         if (err) return reject(err);
-        // Migrate existing tables that lack the maxQuantityPerCard column
+        // Migrate existing tables that lack newer columns
         db.run(`ALTER TABLE ${AUTOMATION_SETTINGS_TABLE} ADD COLUMN maxQuantityPerCard INTEGER`, () => {
-            resolve();
+            db.run(`ALTER TABLE ${AUTOMATION_SETTINGS_TABLE} ADD COLUMN marginCapCents INTEGER`, () => {
+                resolve();
+            });
         });
     });
 });
@@ -2336,6 +2396,11 @@ const normalizeAutomationSettingsPayload = (input = {}) => {
         normalized.maxQuantityPerCard = Number.isFinite(mqpc) && mqpc >= 1 ? Math.round(mqpc) : null;
     }
 
+    if (typeof input.marginCapCents !== 'undefined') {
+        const mcc = Number(input.marginCapCents);
+        normalized.marginCapCents = Number.isFinite(mcc) ? Math.round(mcc) : null;
+    }
+
     return normalized;
 };
 
@@ -2360,6 +2425,8 @@ const mapAutomationRowToSettings = (row = {}) => {
     mapped.nextRunAt = row.nextRunAt || null;
     const mqpc = Number(row.maxQuantityPerCard);
     mapped.maxQuantityPerCard = Number.isFinite(mqpc) && mqpc >= 1 ? mqpc : null;
+    const mcc = Number(row.marginCapCents);
+    mapped.marginCapCents = Number.isFinite(mcc) ? mcc : null;
     return mapped;
 };
 
@@ -2377,7 +2444,8 @@ const persistAutomationSettings = (db, settings) => new Promise((resolve, reject
         serializeAutomationList(settings.exclusions),
         settings.lastRunAt,
         settings.nextRunAt,
-        settings.maxQuantityPerCard ?? null
+        settings.maxQuantityPerCard ?? null,
+        settings.marginCapCents ?? null
     ];
     const sql = `
         INSERT INTO ${AUTOMATION_SETTINGS_TABLE} (
@@ -2393,8 +2461,9 @@ const persistAutomationSettings = (db, settings) => new Promise((resolve, reject
             exclusions,
             lastRunAt,
             nextRunAt,
-            maxQuantityPerCard
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            maxQuantityPerCard,
+            marginCapCents
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             enabled=excluded.enabled,
             intervalMinutes=excluded.intervalMinutes,
@@ -2408,6 +2477,7 @@ const persistAutomationSettings = (db, settings) => new Promise((resolve, reject
             lastRunAt=excluded.lastRunAt,
             nextRunAt=excluded.nextRunAt,
             maxQuantityPerCard=excluded.maxQuantityPerCard,
+            marginCapCents=excluded.marginCapCents,
             updatedAt=CURRENT_TIMESTAMP
     `;
     db.run(sql, params, (err) => {
