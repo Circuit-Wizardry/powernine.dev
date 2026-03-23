@@ -704,34 +704,28 @@ const entryKey = (entry) => [
     entry.condition_id
 ].join('|');
 
-const MANAPOOL_FEE_RATE = 0.05;
-const PAYMENT_FEE_RATE = 0.029;
-const PAYMENT_FEE_FLAT_CENTS = 30;
-const SHIPPING_INCOME_CENTS = 130;
-const SHIPPING_COST_CENTS = 125;
-const FREE_SHIPPING_THRESHOLD_CENTS = 4500;
+const MARGIN_CAP_SHIPPING_INCOME_CENTS = 130;
+const MARGIN_CAP_SHIPPING_COST_CENTS = 125;
+const MARGIN_CAP_FREE_SHIPPING_THRESHOLD_CENTS = 4500;
 
 const calcFeesAfterMarginCents = (salePriceCents, costCents) => {
-    const mpFee = Math.round(salePriceCents * MANAPOOL_FEE_RATE);
-    const payFee = Math.round(salePriceCents * PAYMENT_FEE_RATE) + PAYMENT_FEE_FLAT_CENTS;
-    const shippingNet = salePriceCents < FREE_SHIPPING_THRESHOLD_CENTS
-        ? SHIPPING_INCOME_CENTS - SHIPPING_COST_CENTS
-        : -SHIPPING_COST_CENTS;
-    const totalFees = mpFee + payFee - shippingNet;
+    const combinedFee = Math.round(salePriceCents * MANAPOOL_FEE_RATE) + Math.round(MANAPOOL_FEE_FLAT * 100);
+    const shippingNet = salePriceCents < MARGIN_CAP_FREE_SHIPPING_THRESHOLD_CENTS
+        ? MARGIN_CAP_SHIPPING_INCOME_CENTS - MARGIN_CAP_SHIPPING_COST_CENTS
+        : -MARGIN_CAP_SHIPPING_COST_CENTS;
+    const totalFees = combinedFee - shippingNet;
     return salePriceCents - costCents - totalFees;
 };
 
 const calcMinPriceForMarginCap = (costCents, marginCapCents) => {
     // margin = sale - cost - fees
-    // fees = sale * (MP + PAY) + PAY_FLAT - shippingNet
-    // margin = sale - cost - sale*(MP+PAY) - PAY_FLAT + shippingNet
-    // margin = sale*(1 - MP - PAY) - cost - PAY_FLAT + shippingNet
-    // sale = (margin + cost + PAY_FLAT - shippingNet) / (1 - MP - PAY)
-    // We solve for the conservative case (above free-shipping threshold: shippingNet = -SHIPPING_COST)
-    const combinedRate = MANAPOOL_FEE_RATE + PAYMENT_FEE_RATE;
-    const shippingNet = -SHIPPING_COST_CENTS; // worst case
-    const numerator = marginCapCents + costCents + PAYMENT_FEE_FLAT_CENTS - shippingNet;
-    const minPrice = Math.ceil(numerator / (1 - combinedRate));
+    // fees = sale * RATE + FLAT - shippingNet
+    // sale = (margin + cost + FLAT - shippingNet) / (1 - RATE)
+    // Solve for worst case (above free-shipping threshold: shippingNet = -SHIPPING_COST)
+    const flatCents = Math.round(MANAPOOL_FEE_FLAT * 100);
+    const shippingNet = -MARGIN_CAP_SHIPPING_COST_CENTS;
+    const numerator = marginCapCents + costCents + flatCents - shippingNet;
+    const minPrice = Math.ceil(numerator / (1 - MANAPOOL_FEE_RATE));
     return Math.max(1, minPrice);
 };
 
