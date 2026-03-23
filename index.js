@@ -117,6 +117,7 @@ app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 
 
 // --- TEMPORARY: Chunked database upload (remove after initial import) ---
+// Each chunk appends directly to AllData.sqlite — no duplicate disk usage.
 app.post('/upload-db/clean', (req, res) => {
       const token = req.headers['x-upload-token'];
       if (token !== process.env.DB_UPLOAD_TOKEN) {
@@ -143,60 +144,40 @@ app.put('/upload-db/:chunk', (req, res) => {
             return res.status(403).json({ error: 'Forbidden' });
       }
       const chunkNum = parseInt(req.params.chunk, 10);
-      const dest = path.join(__dirname, 'data', `AllData.sqlite.part${chunkNum}`);
-      const writeStream = fs.createWriteStream(dest);
+      const dest = path.join(__dirname, 'data', 'AllData.sqlite');
+      // First chunk creates the file, subsequent chunks append
+      const flags = chunkNum === 0 ? 'w' : 'a';
+      const writeStream = fs.createWriteStream(dest, { flags });
       let bytes = 0;
       req.on('data', (c) => { bytes += c.length; });
       req.pipe(writeStream);
       writeStream.on('finish', () => {
-            console.log(`[upload-db] Chunk ${chunkNum}: ${(bytes / 1024 / 1024).toFixed(1)} MB`);
-            res.json({ ok: true, chunk: chunkNum, bytes });
+            const totalSize = fs.statSync(dest).size;
+            console.log(`[upload-db] Chunk ${chunkNum}: +${(bytes / 1024 / 1024).toFixed(1)} MB (total: ${(totalSize / 1024 / 1024).toFixed(1)} MB)`);
+            res.json({ ok: true, chunk: chunkNum, bytes, totalSize });
       });
       writeStream.on('error', (err) => res.status(500).json({ error: err.message }));
 });
 
-app.post('/upload-db/assemble', (req, res) => {
+app.post('/upload-db/verify', (req, res) => {
       const token = req.headers['x-upload-token'];
       if (token !== process.env.DB_UPLOAD_TOKEN) {
             return res.status(403).json({ error: 'Forbidden' });
       }
-      const dataDir = path.join(__dirname, 'data');
-      const dest = path.join(dataDir, 'AllData.sqlite');
-      const parts = fs.readdirSync(dataDir)
-            .filter(f => f.startsWith('AllData.sqlite.part'))
-            .sort((a, b) => parseInt(a.split('part')[1]) - parseInt(b.split('part')[1]));
-
-      if (parts.length === 0) return res.status(400).json({ error: 'No parts found' });
-
-      const writeStream = fs.createWriteStream(dest);
-      let i = 0;
-      const writeNext = () => {
-            if (i >= parts.length) {
-                  writeStream.end(() => {
-                        // Clean up parts
-                        parts.forEach(p => fs.unlinkSync(path.join(dataDir, p)));
-                        // Verify integrity
-                        const testDb = new sqlite3.Database(dest, sqlite3.OPEN_READONLY, (err) => {
-                              if (err) return res.status(500).json({ ok: false, error: err.message });
-                              testDb.get("PRAGMA integrity_check", (err, row) => {
-                                    testDb.close();
-                                    if (err || row?.integrity_check !== 'ok') {
-                                          return res.status(500).json({ ok: false, error: 'Integrity check failed' });
-                                    }
-                                    const size = fs.statSync(dest).size;
-                                    console.log(`[upload-db] Assembled and verified ${(size / 1024 / 1024).toFixed(1)} MB`);
-                                    res.json({ ok: true, size, integrity: 'ok' });
-                              });
-                        });
-                  });
-                  return;
-            }
-            const partStream = fs.createReadStream(path.join(dataDir, parts[i]));
-            partStream.pipe(writeStream, { end: false });
-            partStream.on('end', () => { i++; writeNext(); });
-            partStream.on('error', (err) => res.status(500).json({ error: err.message }));
-      };
-      writeNext();
+      const dest = path.join(__dirname, 'data', 'AllData.sqlite');
+      if (!fs.existsSync(dest)) return res.status(404).json({ error: 'No database file found' });
+      const size = fs.statSync(dest).size;
+      const testDb = new sqlite3.Database(dest, sqlite3.OPEN_READONLY, (err) => {
+            if (err) return res.status(500).json({ ok: false, size, error: err.message });
+            testDb.get("PRAGMA integrity_check", (err, row) => {
+                  testDb.close();
+                  if (err || row?.integrity_check !== 'ok') {
+                        return res.status(500).json({ ok: false, size, error: 'Integrity check failed' });
+                  }
+                  console.log(`[upload-db] Verified ${(size / 1024 / 1024).toFixed(1)} MB — integrity OK`);
+                  res.json({ ok: true, size, integrity: 'ok' });
+            });
+      });
 });
 // --- END TEMPORARY ---
 
