@@ -117,6 +117,26 @@ app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 
 
 // --- TEMPORARY: Chunked database upload (remove after initial import) ---
+app.post('/upload-db/clean', (req, res) => {
+      const token = req.headers['x-upload-token'];
+      if (token !== process.env.DB_UPLOAD_TOKEN) {
+            return res.status(403).json({ error: 'Forbidden' });
+      }
+      const dataDir = path.join(__dirname, 'data');
+      let deleted = [];
+      if (fs.existsSync(dataDir)) {
+            for (const f of fs.readdirSync(dataDir)) {
+                  const fp = path.join(dataDir, f);
+                  if (fs.statSync(fp).isFile()) {
+                        fs.unlinkSync(fp);
+                        deleted.push(f);
+                  }
+            }
+      }
+      console.log(`[upload-db] Cleaned ${deleted.length} files from data/`);
+      res.json({ ok: true, deleted });
+});
+
 app.put('/upload-db/:chunk', (req, res) => {
       const token = req.headers['x-upload-token'];
       if (token !== process.env.DB_UPLOAD_TOKEN) {

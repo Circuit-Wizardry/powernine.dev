@@ -77,7 +77,35 @@ async function assemble() {
     });
 }
 
+async function clean() {
+    return new Promise((resolve, reject) => {
+        const url = new globalThis.URL(`${URL}/upload-db/clean`);
+        const req = https.request({
+            hostname: url.hostname,
+            port: 443,
+            path: url.pathname,
+            method: 'POST',
+            headers: { 'x-upload-token': TOKEN },
+            timeout: 30000
+        }, (res) => {
+            let body = '';
+            res.on('data', (d) => body += d);
+            res.on('end', () => {
+                if (res.statusCode === 200) resolve(JSON.parse(body));
+                else reject(new Error(`Clean failed (${res.statusCode}): ${body}`));
+            });
+        });
+        req.on('error', reject);
+        req.end();
+    });
+}
+
 async function main() {
+    console.log('Cleaning volume...');
+    const cleaned = await clean();
+    console.log(`Deleted ${cleaned.deleted.length} files: ${cleaned.deleted.join(', ')}`);
+    console.log('');
+
     for (let i = 0; i < totalChunks; i++) {
         const start = i * CHUNK_SIZE;
         const end = Math.min(start + CHUNK_SIZE, fileSize);
