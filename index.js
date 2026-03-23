@@ -79,7 +79,10 @@ app.use(sessionAuth.attachSession);
 app.use('/login', sessionAuth.loginRouter);
 app.use('/logout', sessionAuth.logoutRouter);
 
-const PUBLIC_PATH_PREFIXES = ['/login', '/logout'];
+// Health check endpoint (public, no auth required)
+app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
+
+const PUBLIC_PATH_PREFIXES = ['/login', '/logout', '/health'];
 const isPublicPath = (req) => {
       const pathname = req.path || req.url || '';
       return PUBLIC_PATH_PREFIXES.some(prefix => pathname.startsWith(prefix));
