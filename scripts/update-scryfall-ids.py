@@ -5,7 +5,7 @@ import os
 import re
 
 # --- Configuration ---
-DATABASE_FILE = 'AllData.sqlite'
+DATABASE_FILE = os.path.join(os.path.dirname(__file__), '..', 'data', 'AllData.sqlite')
 SCRYFALL_BASE_URL = 'https://api.scryfall.com/cards/'
 DELAY_SECONDS = 0.1  # 100ms delay to be polite to the Scryfall API (max 10 requests per second)
 # ---------------------
