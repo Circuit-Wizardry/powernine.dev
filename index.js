@@ -116,39 +116,67 @@ app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 
 
 
-// --- TEMPORARY: Database upload endpoint (remove after initial import) ---
-app.put('/upload-db', (req, res) => {
+// --- TEMPORARY: Chunked database upload (remove after initial import) ---
+app.put('/upload-db/:chunk', (req, res) => {
       const token = req.headers['x-upload-token'];
       if (token !== process.env.DB_UPLOAD_TOKEN) {
             return res.status(403).json({ error: 'Forbidden' });
       }
-      const dest = path.join(__dirname, 'data', 'AllData.sqlite');
+      const chunkNum = parseInt(req.params.chunk, 10);
+      const dest = path.join(__dirname, 'data', `AllData.sqlite.part${chunkNum}`);
       const writeStream = fs.createWriteStream(dest);
       let bytes = 0;
-      req.on('data', (chunk) => { bytes += chunk.length; });
+      req.on('data', (c) => { bytes += c.length; });
       req.pipe(writeStream);
       writeStream.on('finish', () => {
-            // Verify the SQLite file is valid
-            const testDb = new sqlite3.Database(dest, sqlite3.OPEN_READONLY, (err) => {
-                  if (err) {
-                        console.error('[upload-db] DB verification failed:', err.message);
-                        return res.status(500).json({ ok: false, bytes, error: 'Upload corrupted: ' + err.message });
-                  }
-                  testDb.get("PRAGMA integrity_check", (err, row) => {
-                        testDb.close();
-                        if (err || row?.integrity_check !== 'ok') {
-                              console.error('[upload-db] Integrity check failed:', err?.message || row);
-                              return res.status(500).json({ ok: false, bytes, error: 'Integrity check failed' });
-                        }
-                        console.log(`[upload-db] Received and verified ${(bytes / 1024 / 1024).toFixed(1)} MB`);
-                        res.json({ ok: true, bytes, integrity: 'ok' });
+            console.log(`[upload-db] Chunk ${chunkNum}: ${(bytes / 1024 / 1024).toFixed(1)} MB`);
+            res.json({ ok: true, chunk: chunkNum, bytes });
+      });
+      writeStream.on('error', (err) => res.status(500).json({ error: err.message }));
+});
+
+app.post('/upload-db/assemble', (req, res) => {
+      const token = req.headers['x-upload-token'];
+      if (token !== process.env.DB_UPLOAD_TOKEN) {
+            return res.status(403).json({ error: 'Forbidden' });
+      }
+      const dataDir = path.join(__dirname, 'data');
+      const dest = path.join(dataDir, 'AllData.sqlite');
+      const parts = fs.readdirSync(dataDir)
+            .filter(f => f.startsWith('AllData.sqlite.part'))
+            .sort((a, b) => parseInt(a.split('part')[1]) - parseInt(b.split('part')[1]));
+
+      if (parts.length === 0) return res.status(400).json({ error: 'No parts found' });
+
+      const writeStream = fs.createWriteStream(dest);
+      let i = 0;
+      const writeNext = () => {
+            if (i >= parts.length) {
+                  writeStream.end(() => {
+                        // Clean up parts
+                        parts.forEach(p => fs.unlinkSync(path.join(dataDir, p)));
+                        // Verify integrity
+                        const testDb = new sqlite3.Database(dest, sqlite3.OPEN_READONLY, (err) => {
+                              if (err) return res.status(500).json({ ok: false, error: err.message });
+                              testDb.get("PRAGMA integrity_check", (err, row) => {
+                                    testDb.close();
+                                    if (err || row?.integrity_check !== 'ok') {
+                                          return res.status(500).json({ ok: false, error: 'Integrity check failed' });
+                                    }
+                                    const size = fs.statSync(dest).size;
+                                    console.log(`[upload-db] Assembled and verified ${(size / 1024 / 1024).toFixed(1)} MB`);
+                                    res.json({ ok: true, size, integrity: 'ok' });
+                              });
+                        });
                   });
-            });
-      });
-      writeStream.on('error', (err) => {
-            console.error('[upload-db] Write error:', err);
-            res.status(500).json({ error: err.message });
-      });
+                  return;
+            }
+            const partStream = fs.createReadStream(path.join(dataDir, parts[i]));
+            partStream.pipe(writeStream, { end: false });
+            partStream.on('end', () => { i++; writeNext(); });
+            partStream.on('error', (err) => res.status(500).json({ error: err.message }));
+      };
+      writeNext();
 });
 // --- END TEMPORARY ---
 
