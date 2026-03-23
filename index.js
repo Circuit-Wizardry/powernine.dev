@@ -82,11 +82,12 @@ const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
       : [];
 app.use(cors({
       origin: (origin, callback) => {
-            // Allow requests with no origin (server-to-server, curl, mobile apps)
+            // Allow requests with no origin (server-to-server, curl, same-origin forms)
+            // For unrecognized origins, just don't set CORS headers (browser enforces)
             if (!origin || ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(origin)) {
                   callback(null, true);
             } else {
-                  callback(new Error('Not allowed by CORS'));
+                  callback(null, false);
             }
       },
       credentials: true
@@ -113,29 +114,9 @@ app.use('/logout', sessionAuth.logoutRouter);
 // Health check endpoint (public, no auth required)
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 
-// --- TEMPORARY: Database upload endpoint (remove after initial import) ---
-app.put('/upload-db', (req, res) => {
-      const token = req.headers['x-upload-token'];
-      if (token !== process.env.DB_UPLOAD_TOKEN) {
-            return res.status(403).json({ error: 'Forbidden' });
-      }
-      const dest = path.join(__dirname, 'data', 'AllData.sqlite');
-      const writeStream = fs.createWriteStream(dest);
-      let bytes = 0;
-      req.on('data', (chunk) => { bytes += chunk.length; });
-      req.pipe(writeStream);
-      writeStream.on('finish', () => {
-            console.log(`[upload-db] Received ${(bytes / 1024 / 1024).toFixed(1)} MB`);
-            res.json({ ok: true, bytes });
-      });
-      writeStream.on('error', (err) => {
-            console.error('[upload-db] Write error:', err);
-            res.status(500).json({ error: err.message });
-      });
-});
-// --- END TEMPORARY ---
 
-const PUBLIC_PATH_PREFIXES = ['/login', '/logout', '/health', '/upload-db'];
+
+const PUBLIC_PATH_PREFIXES = ['/login', '/logout', '/health'];
 const isPublicPath = (req) => {
       const pathname = req.path || req.url || '';
       return PUBLIC_PATH_PREFIXES.some(prefix => pathname.startsWith(prefix));
