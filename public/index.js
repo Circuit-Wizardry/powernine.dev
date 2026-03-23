@@ -363,6 +363,64 @@ refreshShippingAlert();
                     ctx.write(`Started at ${payload.startedAt}.`);
                 }
             }
+        },
+
+        BACKUPS: {
+            description: 'List available backups.',
+            handler: async (args, ctx) => {
+                ctx.write('Fetching backups...');
+                const res = await fetch('/api/backups');
+                const backups = await res.json();
+                if (backups.length === 0) {
+                    ctx.write('No backups found.');
+                    return;
+                }
+                ctx.write(`Found ${backups.length} backup(s):`);
+                for (const b of backups) {
+                    const sizeMB = (b.size / 1024 / 1024).toFixed(1);
+                    const date = new Date(b.created).toLocaleString();
+                    ctx.write(`  ${b.name}  (${sizeMB} MB, ${date})`);
+                }
+                ctx.write('');
+                ctx.write('To restore: RESTORE <filename>');
+            }
+        },
+
+        RESTORE: {
+            description: 'Restore a backup. Usage: RESTORE <backup-filename>',
+            handler: async (args, ctx) => {
+                if (!args[0]) {
+                    ctx.write('Usage: RESTORE <backup-filename>');
+                    ctx.write('Run BACKUPS to see available files.');
+                    return;
+                }
+                const name = args[0];
+                ctx.write(`Restoring from ${name}...`);
+                const res = await fetch('/api/backups/restore', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                const payload = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(payload.error || `Restore failed (${res.status})`);
+                }
+                ctx.write(`Restored ${payload.restored.length} table(s): ${payload.restored.join(', ')}`);
+                if (payload.errors && payload.errors.length > 0) {
+                    for (const e of payload.errors) {
+                        ctx.write(`  Error on ${e.table}: ${e.error}`);
+                    }
+                }
+            }
+        },
+
+        HELP: {
+            description: 'Show available commands.',
+            handler: async (args, ctx) => {
+                for (const [name, cmd] of Object.entries(COMMANDS)) {
+                    ctx.write(`  ${name} - ${cmd.description}`);
+                }
+            }
         }
     };
 
@@ -388,7 +446,7 @@ refreshShippingAlert();
 
     const hint = document.createElement('div');
     hint.className = 'cmd-console__hint';
-    hint.textContent = 'Press ` (grave) to toggle • Up/Down for history • Available: DAILY_UPDATE';
+    hint.textContent = 'Press ` (grave) to toggle • Up/Down for history • Type HELP for commands';
     consoleEl.appendChild(hint);
 
     document.body.appendChild(consoleEl);
@@ -491,5 +549,5 @@ refreshShippingAlert();
         }
     });
 
-    writeLine('Powernine console ready. Press ` to toggle. Commands: ' + Object.keys(COMMANDS).join(', '));
+    writeLine('Powernine console ready. Type HELP for available commands.');
 })();

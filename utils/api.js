@@ -550,6 +550,108 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
         return res.status(404).json({ error: `Unknown command: ${command}` });
     });
 
+    // --- Backup management ---
+    const BACKUP_DIR = path.resolve('./data/backups');
+
+    router.get('/backups', (req, res) => {
+        if (!fs.existsSync(BACKUP_DIR)) return res.json([]);
+        const files = fs.readdirSync(BACKUP_DIR)
+            .filter(f => f.endsWith('.sqlite'))
+            .map(f => {
+                const stat = fs.statSync(path.join(BACKUP_DIR, f));
+                return { name: f, size: stat.size, created: stat.mtime.toISOString() };
+            })
+            .sort((a, b) => b.created.localeCompare(a.created));
+        res.json(files);
+    });
+
+    router.post('/backups/restore', express.json(), (req, res) => {
+        const { name } = req.body || {};
+        if (!name || typeof name !== 'string') {
+            return res.status(400).json({ error: 'Backup name is required.' });
+        }
+        // Prevent path traversal
+        const safeName = path.basename(name);
+        const backupPath = path.join(BACKUP_DIR, safeName);
+        if (!fs.existsSync(backupPath)) {
+            return res.status(404).json({ error: `Backup not found: ${safeName}` });
+        }
+
+        const DB_PATH = path.resolve('./data/AllData.sqlite');
+        const sqlite3 = db.constructor;
+
+        // Attach the backup and restore each table
+        db.serialize(() => {
+            db.run(`ATTACH DATABASE ? AS backup`, [backupPath], (err) => {
+                if (err) return res.status(500).json({ error: err.message });
+
+                // Get the list of tables in the backup
+                db.all(`SELECT name FROM backup.sqlite_master WHERE type='table'`, (err, tables) => {
+                    if (err) {
+                        db.run('DETACH DATABASE backup');
+                        return res.status(500).json({ error: err.message });
+                    }
+
+                    const tableNames = tables.map(t => t.name);
+                    let restored = [];
+                    let errors = [];
+
+                    db.run('BEGIN TRANSACTION', () => {
+                        let remaining = tableNames.length;
+                        if (remaining === 0) {
+                            db.run('COMMIT');
+                            db.run('DETACH DATABASE backup');
+                            return res.json({ restored: [], errors: [] });
+                        }
+
+                        for (const table of tableNames) {
+                            // Delete current data, insert from backup
+                            db.run(`DELETE FROM main.${table}`, (err) => {
+                                if (err) {
+                                    errors.push({ table, error: err.message });
+                                    checkDone();
+                                    return;
+                                }
+                                db.run(`INSERT INTO main.${table} SELECT * FROM backup.${table}`, (err) => {
+                                    if (err) errors.push({ table, error: err.message });
+                                    else restored.push(table);
+                                    checkDone();
+                                });
+                            });
+                        }
+
+                        function checkDone() {
+                            remaining--;
+                            if (remaining <= 0) {
+                                if (errors.length > 0) {
+                                    db.run('ROLLBACK', () => {
+                                        db.run('DETACH DATABASE backup');
+                                        res.status(500).json({ error: 'Restore failed, rolled back.', restored, errors });
+                                    });
+                                } else {
+                                    db.run('COMMIT', () => {
+                                        db.run('DETACH DATABASE backup');
+                                        console.log(`[backup] Restored ${restored.length} tables from ${safeName}`);
+                                        res.json({ restored, errors });
+                                    });
+                                }
+                            }
+                        }
+                    });
+                });
+            });
+        });
+    });
+
+    router.delete('/backups/:name', (req, res) => {
+        const safeName = path.basename(req.params.name);
+        const backupPath = path.join(BACKUP_DIR, safeName);
+        if (!fs.existsSync(backupPath)) {
+            return res.status(404).json({ error: 'Backup not found.' });
+        }
+        fs.unlinkSync(backupPath);
+        res.json({ ok: true, deleted: safeName });
+    });
 
     router.post('/scrape-buylists', express.json(), async (req, res) => {
         if (!req.body) {

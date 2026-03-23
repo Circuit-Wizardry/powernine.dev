@@ -274,8 +274,8 @@ async function downloadFile(url, destPath) {
 }
 
 /**
- * Creates a timestamped backup of the AllData database inside data/backups.
- * Streams are used to avoid loading the entire file into memory.
+ * Creates a lightweight backup containing only user data tables (not the huge
+ * cards/price_history tables that can be re-downloaded from MTGJSON).
  * @param {string} targetDbPath Path to the AllData.sqlite file.
  * @param {string} backupDir Directory to place the backup.
  * @returns {Promise<string|null>} The backup path or null if the source doesn't exist.
@@ -288,16 +288,55 @@ async function backupAllData(targetDbPath, backupDir) {
     fs.mkdirSync(backupDir, { recursive: true });
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backupPath = path.join(backupDir, `AllData-${timestamp}.sqlite`);
-    console.log(`\nBacking up AllData.sqlite to ${backupPath}...`);
+    console.log(`\nBacking up user data tables to ${backupPath}...`);
+
+    const BACKUP_TABLES = [
+        'inventory',
+        'transactions',
+        'transaction_items',
+        'inventory_metadata',
+        'imported_lists',
+        'expense_entries',
+        'inventory_snapshots',
+        'manapool_automation_settings',
+        'manapool_automation_baselines'
+    ];
+
+    const sourceDb = new sqlite3.Database(targetDbPath);
     await new Promise((resolve, reject) => {
-        const reader = fs.createReadStream(targetDbPath);
-        const writer = fs.createWriteStream(backupPath);
-        reader.on('error', reject);
-        writer.on('error', reject);
-        writer.on('finish', resolve);
-        reader.pipe(writer);
+        sourceDb.run(`ATTACH DATABASE ? AS backup`, [backupPath], (err) => {
+            if (err) return reject(err);
+
+            sourceDb.serialize(() => {
+                for (const table of BACKUP_TABLES) {
+                    sourceDb.run(
+                        `CREATE TABLE IF NOT EXISTS backup.${table} AS SELECT * FROM main.${table}`,
+                        (err) => { if (err) console.warn(`[backup] Skipping ${table}: ${err.message}`); }
+                    );
+                }
+                sourceDb.run(`DETACH DATABASE backup`, (err) => {
+                    sourceDb.close();
+                    if (err) return reject(err);
+                    const size = fs.statSync(backupPath).size;
+                    console.log(` -> Backup completed: ${(size / 1024 / 1024).toFixed(1)} MB`);
+
+                    // Prune backups older than 10 days
+                    const maxAge = 10 * 24 * 60 * 60 * 1000;
+                    const now = Date.now();
+                    for (const f of fs.readdirSync(backupDir)) {
+                        if (!f.endsWith('.sqlite')) continue;
+                        const fp = path.join(backupDir, f);
+                        if (now - fs.statSync(fp).mtimeMs > maxAge) {
+                            fs.unlinkSync(fp);
+                            console.log(` -> Pruned old backup: ${f}`);
+                        }
+                    }
+
+                    resolve();
+                });
+            });
+        });
     });
-    console.log(' -> Backup completed successfully.');
     return backupPath;
 }
 
