@@ -33,14 +33,22 @@ exec('npx playwright install chromium --with-deps', (error, stdout, stderr) => {
 });
 
 // --- Clean up temp files from any previously crashed daily-update run ---
-for (const tmp of ['data/AllPricesToday.json', 'data/AllPrintings.sqlite']) {
-      const tmpPath = path.join(__dirname, tmp);
-      if (fs.existsSync(tmpPath)) {
+// Delete everything in data/ except AllData.sqlite and the backups/ subdirectory.
+const DATA_DIR_PATH = path.join(__dirname, 'data');
+if (fs.existsSync(DATA_DIR_PATH)) {
+      for (const entry of fs.readdirSync(DATA_DIR_PATH)) {
+            if (entry === 'AllData.sqlite' || entry === 'backups') continue;
+            const entryPath = path.join(DATA_DIR_PATH, entry);
             try {
-                  fs.unlinkSync(tmpPath);
-                  console.log(`[startup] Cleaned up stale temp file: ${tmp}`);
+                  const stat = fs.statSync(entryPath);
+                  if (stat.isDirectory()) {
+                        fs.rmSync(entryPath, { recursive: true, force: true });
+                  } else {
+                        fs.unlinkSync(entryPath);
+                  }
+                  console.log(`[startup] Removed stale data file: ${entry}`);
             } catch (e) {
-                  console.warn(`[startup] Could not remove stale temp file ${tmp}:`, e.message);
+                  console.warn(`[startup] Could not remove ${entry}:`, e.message);
             }
       }
 }

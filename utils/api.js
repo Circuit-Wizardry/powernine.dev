@@ -7,7 +7,6 @@ import csv from 'csv-parser';
 import { getCardNames } from './card-data.js';
 import axios from 'axios';
 import { randomUUID } from 'crypto';
-import { log } from '../discord.js';
 import { chromium } from 'playwright'; // Import Playwright
 // Import your scraper functions (ensure paths are correct)
 import { scrapeTcgplayerData } from '../scrapers/tcgplayer.js';
@@ -1913,7 +1912,7 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
                 message: 'List permanently saved.',
                 name: finalName
             });
-            log(`[lists] List ${listId} has been permanently saved.`);
+            console.log(`[lists] List ${listId} has been permanently saved.`);
         });
     });
 
