@@ -358,10 +358,93 @@ refreshShippingAlert();
                     throw new Error(payload.error || `Request failed (${response.status})`);
                 }
                 const pidInfo = payload.pid ? ` (pid ${payload.pid})` : '';
-                ctx.write(`DAILY_UPDATE ${payload.status || 'started'}${pidInfo}. Progress will appear in Discord #console.`);
+                ctx.write(`DAILY_UPDATE ${payload.status || 'started'}${pidInfo}. Progress will appear in server logs.`);
                 if (payload.startedAt) {
                     ctx.write(`Started at ${payload.startedAt}.`);
                 }
+            }
+        },
+
+        LS: {
+            description: 'List files in the data directory with sizes.',
+            handler: async (args, ctx) => {
+                const res = await fetch('/api/admin/storage');
+                if (!res.ok) throw new Error(`Failed (${res.status})`);
+                const { entries, totalBytes } = await res.json();
+                if (!entries.length) {
+                    ctx.write('data/ is empty.');
+                    return;
+                }
+                const pad = (s, n) => s.length >= n ? s : s + ' '.repeat(n - s.length);
+                for (const e of entries) {
+                    const sizeMB = (e.size / 1024 / 1024).toFixed(1).padStart(7);
+                    const date = new Date(e.modified).toLocaleString();
+                    ctx.write(`${sizeMB} MB  ${pad(e.name, 36)}  ${date}`);
+                }
+                ctx.write(`─────────────────────────────────────────────`);
+                ctx.write(`  Total: ${(totalBytes / 1024 / 1024).toFixed(1)} MB across ${entries.length} file(s)`);
+            }
+        },
+
+        DB_SIZE: {
+            description: 'Show the size of AllData.sqlite and suggest VACUUM if space is wasted.',
+            handler: async (args, ctx) => {
+                const res = await fetch('/api/admin/status');
+                if (!res.ok) throw new Error(`Failed (${res.status})`);
+                const data = await res.json();
+                ctx.write(`AllData.sqlite: ${data.db.sizeMB} MB`);
+                ctx.write(`  Reclaimable (freelist): ${data.db.wastedMB} MB`);
+                if (data.db.hintVacuum) {
+                    ctx.write(`  Tip: run VACUUM to reclaim wasted space.`);
+                }
+            }
+        },
+
+        MEMORY: {
+            description: 'Show current server memory usage.',
+            handler: async (args, ctx) => {
+                const res = await fetch('/api/admin/memory');
+                if (!res.ok) throw new Error(`Failed (${res.status})`);
+                const m = await res.json();
+                ctx.write(`RSS (total process):  ${m.rss} MB`);
+                ctx.write(`Heap used:            ${m.heapUsed} MB`);
+                ctx.write(`Heap total:           ${m.heapTotal} MB`);
+                ctx.write(`External (buffers):   ${m.external} MB`);
+            }
+        },
+
+        STATUS: {
+            description: 'Show database stats: inventory, transactions, uptime.',
+            handler: async (args, ctx) => {
+                const res = await fetch('/api/admin/status');
+                if (!res.ok) throw new Error(`Failed (${res.status})`);
+                const d = await res.json();
+                const uptime = d.uptimeSeconds;
+                const h = Math.floor(uptime / 3600);
+                const m = Math.floor((uptime % 3600) / 60);
+                const s = uptime % 60;
+                const uptimeStr = `${h}h ${m}m ${s}s`;
+                ctx.write(`Inventory:     ${d.inventory.rows} rows  (${d.inventory.totalQty} total cards)`);
+                ctx.write(`Transactions:  ${d.transactions}`);
+                ctx.write(`Price history: ${d.priceHistory} cards tracked`);
+                ctx.write(`DB size:       ${d.db.sizeMB} MB  (${d.db.wastedMB} MB reclaimable)`);
+                ctx.write(`Uptime:        ${uptimeStr}`);
+            }
+        },
+
+        VACUUM: {
+            description: 'Reclaim wasted space in AllData.sqlite (runs SQLite VACUUM).',
+            handler: async (args, ctx) => {
+                ctx.write('Running VACUUM... this may take a moment.');
+                const res = await fetch('/api/admin/command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command: 'VACUUM' })
+                });
+                const payload = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(payload.error || `Failed (${res.status})`);
+                const sizeStr = payload.sizeMB != null ? ` AllData.sqlite is now ${payload.sizeMB} MB.` : '';
+                ctx.write(`VACUUM complete.${sizeStr}`);
             }
         },
 

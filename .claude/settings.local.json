@@ -17,7 +17,8 @@
       "Bash(node --check public/manapool.js)",
       "Bash(npm uninstall:*)",
       "Bash(node -e \"import\\(''''./index.js''''\\)\")",
-      "Bash(timeout 10 node --input-type=module --eval \":*)"
+      "Bash(timeout 10 node --input-type=module --eval \":*)",
+      "Bash(timeout 10 node --input-type=module --eval \"import\\(''./utils/api.js''\\).then\\(\\(\\) => console.log\\(''OK''\\)\\).catch\\(e => console.error\\(''FAIL:'', e.message\\)\\)\")"
     ]
   }
 }

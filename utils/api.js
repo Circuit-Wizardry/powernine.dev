@@ -546,7 +546,95 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
             });
         }
 
+        if (command === 'VACUUM') {
+            db.run('VACUUM', (err) => {
+                if (err) return res.status(500).json({ error: err.message });
+                const dbPath = path.resolve('./data/AllData.sqlite');
+                const sizeMB = fs.existsSync(dbPath)
+                    ? (fs.statSync(dbPath).size / 1024 / 1024).toFixed(1)
+                    : null;
+                return res.json({ ok: true, sizeMB });
+            });
+            return;
+        }
+
         return res.status(404).json({ error: `Unknown command: ${command}` });
+    });
+
+    router.get('/admin/storage', (req, res) => {
+        const dataDir = path.resolve('./data');
+        if (!fs.existsSync(dataDir)) return res.json({ entries: [] });
+        const entries = [];
+        const scan = (dir, prefix = '') => {
+            for (const name of fs.readdirSync(dir)) {
+                const full = path.join(dir, name);
+                const stat = fs.statSync(full);
+                const displayName = prefix ? `${prefix}/${name}` : name;
+                if (stat.isDirectory()) {
+                    scan(full, displayName);
+                } else {
+                    entries.push({ name: displayName, size: stat.size, modified: stat.mtime.toISOString() });
+                }
+            }
+        };
+        scan(dataDir);
+        entries.sort((a, b) => b.size - a.size);
+        const totalBytes = entries.reduce((s, e) => s + e.size, 0);
+        res.json({ entries, totalBytes });
+    });
+
+    router.get('/admin/memory', (req, res) => {
+        const m = process.memoryUsage();
+        const toMB = (b) => (b / 1024 / 1024).toFixed(1);
+        res.json({
+            rss: toMB(m.rss),
+            heapUsed: toMB(m.heapUsed),
+            heapTotal: toMB(m.heapTotal),
+            external: toMB(m.external)
+        });
+    });
+
+    router.get('/admin/status', (req, res) => {
+        const queries = {
+            inventoryCount: 'SELECT COUNT(*) AS n FROM inventory',
+            inventoryQty: 'SELECT SUM(quantity) AS n FROM inventory',
+            transactionCount: 'SELECT COUNT(*) AS n FROM transactions',
+            priceHistoryCount: 'SELECT COUNT(*) AS n FROM price_history',
+            pageSize: 'PRAGMA page_size',
+            pageCount: 'PRAGMA page_count',
+            freelistCount: 'PRAGMA freelist_count'
+        };
+        const results = {};
+        const keys = Object.keys(queries);
+        let pending = keys.length;
+        const done = () => {
+            if (--pending > 0) return;
+            const pageSize = results.pageSize || 4096;
+            const pageCount = results.pageCount || 0;
+            const freelistCount = results.freelistCount || 0;
+            const dbSizeBytes = pageSize * pageCount;
+            const wastedBytes = pageSize * freelistCount;
+            res.json({
+                inventory: { rows: results.inventoryCount, totalQty: results.inventoryQty },
+                transactions: results.transactionCount,
+                priceHistory: results.priceHistoryCount,
+                db: {
+                    sizeMB: (dbSizeBytes / 1024 / 1024).toFixed(1),
+                    wastedMB: (wastedBytes / 1024 / 1024).toFixed(1),
+                    hintVacuum: wastedBytes > 10 * 1024 * 1024
+                },
+                uptimeSeconds: Math.floor(process.uptime())
+            });
+        };
+        const pragmaKey = { pageSize: 'page_size', pageCount: 'page_count', freelistCount: 'freelist_count' };
+        for (const key of keys) {
+            db.get(queries[key], (err, row) => {
+                if (err || !row) { results[key] = null; }
+                else if (pragmaKey[key]) { results[key] = row[pragmaKey[key]] ?? null; }
+                else { results[key] = row.n ?? null; }
+                done();
+            });
+        }
     });
 
     // --- Backup management ---
