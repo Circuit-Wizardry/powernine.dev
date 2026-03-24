@@ -10,7 +10,12 @@
       "Bash(node --check index.js)",
       "Bash(node --check utils/manapool-service.js)",
       "Bash(node --check utils/automation-runner.js)",
-      "Bash(node --check utils/api.js)"
+      "Bash(node --check utils/api.js)",
+      "Bash(find d:/GitHub/powernine.dev -name .env* -o -name *.env)",
+      "Bash(node --check utils/discord-notify.js)",
+      "Bash(node --check utils/buylist-reporter.js)",
+      "Bash(node --check public/manapool.js)",
+      "Bash(npm uninstall:*)"
     ]
   }
 }

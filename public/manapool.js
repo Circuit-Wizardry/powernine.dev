@@ -12,7 +12,6 @@ const automationStrategySelect = document.getElementById('automation-strategy');
 const automationIntervalInput = document.getElementById('automation-interval');
 const automationStatusEl = document.getElementById('automation-status');
 const automationAdvancedBtn = document.getElementById('automation-advanced-btn');
-const automationSaveBtn = document.getElementById('automation-save-btn');
 const automationModal = document.getElementById('automation-settings-modal');
 const automationAdvancedForm = document.getElementById('automation-advanced-form');
 const automationFloorTypeSelect = document.getElementById('automation-floor-type');
@@ -224,10 +223,6 @@ const updateActionLockout = () => {
 const updateAutomationStatus = () => {
     if (!automationStatusEl) return;
     updateActionLockout();
-    if (automationSettingsDirty) {
-        automationStatusEl.textContent = 'Unsaved automation changes. Save to apply.';
-        return;
-    }
     if (!automationState.enabled) {
         automationStatusEl.textContent = 'Automation is currently off.';
         return;
@@ -879,16 +874,13 @@ const pushAllInventory = async () => {
 
 const initAutomationForm = () => {
     if (automationForm) {
-        automationToggle?.addEventListener('change', markAutomationSettingsDirty);
-        automationForm.addEventListener('submit', async (event) => {
-            event.preventDefault();
-            const overrides = {
-                enabled: Boolean(automationToggle?.checked)
-            };
+        automationToggle?.addEventListener('change', async () => {
+            const enabled = Boolean(automationToggle.checked);
             try {
-                await persistAutomationSettings(overrides, automationSaveBtn, overrides.enabled ? 'Automatic pricing scheduled.' : 'Automatic pricing disabled.');
+                await persistAutomationSettings({ enabled }, automationToggle, enabled ? 'Automatic pricing scheduled.' : 'Automatic pricing disabled.');
             } catch (error) {
-                // persistAutomationSettings already surfaced the toast/log
+                // persistAutomationSettings already surfaced the toast; revert the toggle
+                if (automationToggle) automationToggle.checked = !enabled;
             }
         });
     }

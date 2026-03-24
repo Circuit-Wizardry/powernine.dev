@@ -8,8 +8,6 @@ import {
     MANAPOOL_AUTO_SHIPPING_AMOUNT,
     MANAPOOL_AUTO_SHIPPING_THRESHOLD,
 } from './expense-helpers.js';
-import { sendManaPoolWebhook } from '../discord.js';
-import { logDiscordConsole, logDiscordEvent, updateAutomationBotState } from './discord-bot.js';
 
 const API_BASE = process.env.MANAPOOL_API_BASE || 'https://manapool.com/api/v1';
 const API_KEY = process.env.MANAPOOL_API_KEY || '';
@@ -40,14 +38,9 @@ export function setInventoryLockState(locked, options = {}) {
     inventoryLockState.reason = nowLocked ? (options.reason || '') : '';
     inventoryLockState.actor = nowLocked ? (options.actor || '') : '';
     inventoryLockState.lockedAt = nowLocked ? new Date().toISOString() : null;
-    updateAutomationBotState({
-        inventoryLocked: inventoryLockState.locked,
-        inventoryLockReason: inventoryLockState.reason,
-        inventoryLockActor: inventoryLockState.actor
-    });
     const action = nowLocked ? 'locked' : 'unlocked';
     const reason = inventoryLockState.reason ? `: ${inventoryLockState.reason}` : '';
-    logDiscordConsole(`[inventory] Inventory sync ${action}${reason}`).catch(() => {});
+    console.log(`[inventory] Inventory sync ${action}${reason}`);
     return getInventoryLockState();
 }
 
@@ -718,15 +711,20 @@ const calcFeesAfterMarginCents = (salePriceCents, costCents) => {
 };
 
 const calcMinPriceForMarginCap = (costCents, marginCapCents) => {
-    // margin = sale - cost - fees
-    // fees = sale * RATE + FLAT - shippingNet
-    // sale = (margin + cost + FLAT - shippingNet) / (1 - RATE)
-    // Solve for worst case (above free-shipping threshold: shippingNet = -SHIPPING_COST)
+    // margin = sale - cost - fees  where fees = sale*RATE + FLAT - shippingNet
+    // => sale = (margin + cost + FLAT - shippingNet) / (1 - RATE)
     const flatCents = Math.round(MANAPOOL_FEE_FLAT * 100);
-    const shippingNet = -MARGIN_CAP_SHIPPING_COST_CENTS;
-    const numerator = marginCapCents + costCents + flatCents - shippingNet;
-    const minPrice = Math.ceil(numerator / (1 - MANAPOOL_FEE_RATE));
-    return Math.max(1, minPrice);
+    const rate = MANAPOOL_FEE_RATE;
+    // Case 1: buyer pays shipping (shippingNet = +5 cents, applies when sale < $45)
+    const shippingNetCheap = MARGIN_CAP_SHIPPING_INCOME_CENTS - MARGIN_CAP_SHIPPING_COST_CENTS; // +5
+    const minPrice1 = Math.ceil((marginCapCents + costCents + flatCents - shippingNetCheap) / (1 - rate));
+    if (minPrice1 < MARGIN_CAP_FREE_SHIPPING_THRESHOLD_CENTS) {
+        return Math.max(1, minPrice1);
+    }
+    // Case 2: seller absorbs shipping (shippingNet = -125 cents, applies when sale >= $45)
+    const shippingNetExpensive = -MARGIN_CAP_SHIPPING_COST_CENTS; // -125
+    const minPrice2 = Math.ceil((marginCapCents + costCents + flatCents - shippingNetExpensive) / (1 - rate));
+    return Math.max(1, minPrice2);
 };
 
 const pushInventoryRows = async (items = [], options = {}) => {
@@ -1304,7 +1302,6 @@ const pushInventoryRows = async (items = [], options = {}) => {
             });
         }
 
-        await sendManaPoolWebhook({ embeds: [embed] });
     }
 
     const automationSummary = automationOptions ? {

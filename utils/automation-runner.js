@@ -10,8 +10,7 @@ import {
     getInventoryLockState,
     restockBelowMaxQuantity
 } from './manapool-service.js';
-import { sendAutomationLifecycleWebhook } from './automation-alerts.js';
-import { publishAutomationRunSummary, updateAutomationBotState, logDiscordEvent, logDiscordConsole } from './discord-bot.js';
+import { notifyLifecycle, notifyRun } from './discord-notify.js';
 
 const MINUTE_MS = 60 * 1000;
 const MIN_INTERVAL_MINUTES = 5;
@@ -31,35 +30,7 @@ let isAutomationRunning = false;
 let pendingSettings = null;
 let hasPrimedBaselinesThisSession = false;
 
-const broadcastAutomationStatus = () => {
-    try {
-        const lock = getInventoryLockState ? getInventoryLockState() : {};
-        const exclusionsCount = Array.isArray(currentSettings?.exclusions)
-            ? currentSettings.exclusions.length
-            : (typeof currentSettings?.exclusions === 'string' && currentSettings.exclusions.trim() ? currentSettings.exclusions.split(/\r?\n/).filter(Boolean).length : 0);
-        const overridesCount = Array.isArray(currentSettings?.floorOverrides)
-            ? currentSettings.floorOverrides.length
-            : (typeof currentSettings?.floorOverrides === 'string' && currentSettings.floorOverrides.trim() ? currentSettings.floorOverrides.split(/\r?\n/).filter(Boolean).length : 0);
-        updateAutomationBotState({
-            automationEnabled: Boolean(currentSettings?.enabled),
-            automationRunning: Boolean(isAutomationRunning),
-            lastRunAt: currentSettings?.lastRunAt || null,
-            nextRunAt: currentSettings?.nextRunAt || null,
-            inventoryLocked: Boolean(lock?.locked),
-            inventoryLockReason: lock?.reason || '',
-            inventoryLockActor: lock?.actor || '',
-            strategy: currentSettings?.strategy || '',
-            intervalMinutes: currentSettings?.intervalMinutes ?? null,
-            floorType: currentSettings?.floorType || '',
-            floorValue: currentSettings?.floorValue ?? null,
-            dropThresholdPercent: currentSettings?.dropThresholdPercent ?? null,
-            exclusionsCount,
-            overridesCount
-        });
-    } catch {
-        // If the bot is not configured, fail silently.
-    }
-};
+const broadcastAutomationStatus = () => {};
 
 const minutesToMs = (value) => {
     const minutes = Number(value);
@@ -141,7 +112,7 @@ const runAutomationCycle = async () => {
             automation: automationPayload
         });
         if (result?.automationSummary) {
-            publishAutomationRunSummary({
+            notifyRun({
                 ...result.automationSummary,
                 runAt: startedAt,
                 durationMs: Date.now() - startedAtMs
@@ -152,14 +123,12 @@ const runAutomationCycle = async () => {
             const restockResult = await restockBelowMaxQuantity(automationDb);
             if (restockResult?.restocked > 0) {
                 console.log(`[automation] Restocked ${restockResult.restocked} cards back to max quantity.`);
-                logDiscordConsole(`[automation] Restocked ${restockResult.restocked} cards back to max quantity cap.`).catch(() => {});
             }
         } catch (restockError) {
             console.warn('[automation] Restock check failed:', restockError.message || restockError);
         }
     } catch (error) {
         console.error('[automation] ManaPool automation run failed:', error);
-        logDiscordConsole(`[automation] Run failed: ${error?.message || error}`).catch(() => {});
     } finally {
         isAutomationRunning = false;
         broadcastAutomationStatus();
@@ -204,11 +173,8 @@ export async function initAutomationScheduler(db) {
     try {
         let settings = await getAutomationSettings(automationDb);
         if (settings?.enabled) {
-            logDiscordEvent('[automation] Server restarted while auto-pricer was enabled. It has been paused until you re-enable it.').catch(() => {});
             settings = await saveAutomationSettings({ enabled: false, nextRunAt: null }, automationDb);
-            await sendAutomationLifecycleWebhook('disabled', settings, {
-                reason: 'Server restarted; automation paused until you re-enable it.'
-            });
+            notifyLifecycle('disabled', settings, { reason: 'Server restarted; automation paused until you re-enable it.' }).catch(() => {});
         }
         applySettings(settings);
         if (settings?.enabled) {
@@ -220,7 +186,6 @@ export async function initAutomationScheduler(db) {
         broadcastAutomationStatus();
     } catch (error) {
         console.error('[automation] Unable to initialize scheduler:', error);
-        logDiscordConsole(`[automation] Scheduler init failed: ${error?.message || error}`).catch(() => {});
     }
 }
 
@@ -398,13 +363,11 @@ export async function applyAutomationSettingsUpdate(update = {}, options = {}) {
     updateAutomationScheduler(settings, { immediate: !previousEnabled && settings.enabled });
     broadcastAutomationStatus();
     if (!previousEnabled && settings.enabled) {
-        await sendAutomationLifecycleWebhook('enabled', settings, { baselineCount });
+        notifyLifecycle('enabled', settings, { baselineCount }).catch(() => {});
     } else if (previousEnabled && !settings.enabled) {
-        await sendAutomationLifecycleWebhook('disabled', settings, { reason: options.reason });
+        notifyLifecycle('disabled', settings, { reason: options.reason }).catch(() => {});
     } else if (previousEnabled && settings.enabled === false) {
-        await sendAutomationLifecycleWebhook('disabled', settings, {
-            reason: options.reason || 'Server restart in progress or automation reset requested.'
-        });
+        notifyLifecycle('disabled', settings, { reason: options.reason || 'Automation reset.' }).catch(() => {});
     }
     return { settings, previous, baselineCount };
 }

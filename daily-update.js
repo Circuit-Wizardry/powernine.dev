@@ -3,7 +3,6 @@ import path from 'path';
 import sqlite3 from 'sqlite3';
 import axios from 'axios';
 import cliProgress from 'cli-progress';
-import { log } from './discord.js'
 
 // --- Configuration ---
 const DATA_DIR = 'data';
@@ -11,6 +10,11 @@ const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const SOURCE_DB_PATH = path.join(DATA_DIR, 'AllPrintings.sqlite');
 const TARGET_DB_PATH = path.join(DATA_DIR, 'AllData.sqlite');
 const TODAY_PRICES_PATH = path.join(DATA_DIR, 'AllPricesToday.json');
+
+// Keep only the most recent N days of price history per card to prevent
+// unbounded growth of price_json rows (which causes the 4GB memory spike).
+const PRICE_HISTORY_DAYS_TO_KEEP = 90;
+const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const URLS = {
     AllPrintings: 'https://mtgjson.com/api/v5/AllPrintings.sqlite',
@@ -69,40 +73,22 @@ const buildProgressContent = (statusMap, note = '') => {
     ].filter(Boolean).join('\n');
 };
 
-const createProgressTracker = async () => {
+const createProgressTracker = () => {
     const statusMap = PROGRESS_STAGES.reduce((acc, stage) => {
         acc[stage.key] = 'pending';
         return acc;
     }, {});
 
-    let message = null;
-
-    const safeEdit = async (content) => {
-        if (message?.edit) {
-            try {
-                await message.edit({ content });
-                return;
-            } catch (err) {
-                console.warn('[daily-update] Failed to edit Discord progress message:', err.message || err);
-            }
-        }
-        console.log('[daily-update] progress update:\n', content);
+    const update = (note) => {
+        console.log('[daily-update]', buildProgressContent(statusMap, note));
     };
 
-    const update = async (note) => safeEdit(buildProgressContent(statusMap, note));
+    update('Preparing to start...');
 
-    try {
-        message = await log(buildProgressContent(statusMap, 'Starting daily update...'));
-    } catch (err) {
-        console.warn('[daily-update] Failed to send Discord progress message:', err.message || err);
-    }
-
-    await update('Preparing to start...');
-
-    const setStatus = async (key, status, note) => {
+    const setStatus = (key, status, note) => {
         if (!(key in statusMap)) return;
         statusMap[key] = status;
-        await update(note || PROGRESS_STAGES.find((stage) => stage.key === key)?.label);
+        update(note || PROGRESS_STAGES.find((stage) => stage.key === key)?.label);
     };
 
     return {
@@ -111,7 +97,7 @@ const createProgressTracker = async () => {
         markError: (key, note) => setStatus(key, 'error', note),
         finalize: (note) => {
             PROGRESS_STAGES.forEach((stage) => { statusMap[stage.key] = 'done'; });
-            return update(note || 'All stages complete.');
+            update(note || 'All stages complete.');
         }
     };
 };
@@ -122,6 +108,33 @@ const getLatestFromHistory = (history) => {
     if (!dates.length) return null;
     dates.sort((a, b) => new Date(b) - new Date(a));
     return history[dates[0]];
+};
+
+/**
+ * Recursively walks a price JSON object and prunes any date-keyed maps
+ * down to the most recent PRICE_HISTORY_DAYS_TO_KEEP entries.
+ * This prevents price_json rows from growing forever and is the main
+ * control on long-term memory usage during the daily update.
+ */
+const pruneOldPriceDates = (obj) => {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
+    const keys = Object.keys(obj);
+    if (!keys.length) return obj;
+    // If every key is an ISO date, this is a price timeline — prune it
+    if (keys.every(k => DATE_KEY_RE.test(k))) {
+        keys.sort((a, b) => (a > b ? -1 : 1)); // newest first
+        const result = {};
+        for (let i = 0; i < Math.min(keys.length, PRICE_HISTORY_DAYS_TO_KEEP); i++) {
+            result[keys[i]] = obj[keys[i]];
+        }
+        return result;
+    }
+    // Otherwise recurse
+    const result = {};
+    for (const k of keys) {
+        result[k] = pruneOldPriceDates(obj[k]);
+    }
+    return result;
 };
 
 const fetchTcgMarketPriceForCard = (db, setCode, collectorNumber, foilType = 'normal') => {
@@ -225,14 +238,7 @@ async function refreshInventoryMarketPrices(targetDbPath) {
     db.close();
 }
 
-/**
- * Recursively merges properties of two objects. The source's properties overwrite the target's.
- * @param {object} target The object to merge into.
- * @param {object} source The object to merge from.
- * @returns {object} The merged object.
- */
 function deepMerge(target, source) {
-    // ... (This function is unchanged)
     const isObject = (item) => (item && typeof item === 'object' && !Array.isArray(item));
     const output = { ...target };
     if (isObject(target) && isObject(source)) {
@@ -251,13 +257,7 @@ function deepMerge(target, source) {
     return output;
 }
 
-/**
- * Downloads a file from a URL, showing a progress bar.
- * @param {string} url The URL to download from.
- * @param {string} destPath The local path to save the file.
- */
 async function downloadFile(url, destPath) {
-    // ... (This function is unchanged)
     console.log(`\nDownloading ${path.basename(destPath)}...`);
     fs.mkdirSync(path.dirname(destPath), { recursive: true });
     const { data, headers } = await axios({ url, method: 'GET', responseType: 'stream' });
@@ -273,13 +273,6 @@ async function downloadFile(url, destPath) {
     });
 }
 
-/**
- * Creates a lightweight backup containing only user data tables (not the huge
- * cards/price_history tables that can be re-downloaded from MTGJSON).
- * @param {string} targetDbPath Path to the AllData.sqlite file.
- * @param {string} backupDir Directory to place the backup.
- * @returns {Promise<string|null>} The backup path or null if the source doesn't exist.
- */
 async function backupAllData(targetDbPath, backupDir) {
     if (!fs.existsSync(targetDbPath)) {
         console.warn('[daily-update] No AllData.sqlite found to back up.');
@@ -341,12 +334,11 @@ async function backupAllData(targetDbPath, backupDir) {
 }
 
 /**
- * Reads AllPricesToday.json and merges the new data with existing price history.
- * @param {string} pricesJsonPath Path to the AllPricesToday.json file.
- * @param {string} targetDbPath Path to the target SQLite database.
+ * Reads AllPricesToday.json, merges with existing price history (pruned to
+ * PRICE_HISTORY_DAYS_TO_KEEP days), and commits in batches to keep memory usage low.
+ * Deletes the JSON file after a successful merge.
  */
 async function updatePriceHistory(pricesJsonPath, targetDbPath) {
-    // ... (This function is unchanged)
     console.log(`\nMerging daily prices into ${targetDbPath}...`);
     const db = new sqlite3.Database(targetDbPath);
     await new Promise((resolve, reject) => {
@@ -360,42 +352,54 @@ async function updatePriceHistory(pricesJsonPath, targetDbPath) {
     const todayPriceData = pricesJson.data;
     const uuidsToUpdate = Object.keys(todayPriceData);
     console.log(` -> Found ${uuidsToUpdate.length} price updates for today.`);
+
+    // Process in batches so each transaction is small and V8 can GC between commits.
+    const BATCH_SIZE = 2000;
     const progressBar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic);
     progressBar.start(uuidsToUpdate.length, 0);
-    await new Promise((resolve, reject) => {
-        db.serialize(() => {
-            db.run('BEGIN TRANSACTION');
-            const selectStmt = db.prepare('SELECT price_json FROM price_history WHERE uuid = ?');
-            const upsertStmt = db.prepare('INSERT INTO price_history (uuid, price_json) VALUES (?, ?) ON CONFLICT(uuid) DO UPDATE SET price_json = excluded.price_json');
-            let chain = Promise.resolve();
-            for (const uuid of uuidsToUpdate) {
-                chain = chain.then(() => new Promise((next, fail) => {
-                    selectStmt.get([uuid], (err, row) => {
-                        if (err) return fail(err);
-                        const existingHistory = row ? JSON.parse(row.price_json) : {};
-                        const todayData = todayPriceData[uuid];
-                        const mergedData = deepMerge(existingHistory, todayData);
-                        upsertStmt.run([uuid, JSON.stringify(mergedData)], (writeErr) => {
-                            progressBar.increment();
-                            if (writeErr) return fail(writeErr);
-                            next();
+
+    for (let batchStart = 0; batchStart < uuidsToUpdate.length; batchStart += BATCH_SIZE) {
+        const batch = uuidsToUpdate.slice(batchStart, batchStart + BATCH_SIZE);
+        await new Promise((resolve, reject) => {
+            db.serialize(() => {
+                db.run('BEGIN TRANSACTION');
+                const selectStmt = db.prepare('SELECT price_json FROM price_history WHERE uuid = ?');
+                const upsertStmt = db.prepare('INSERT INTO price_history (uuid, price_json) VALUES (?, ?) ON CONFLICT(uuid) DO UPDATE SET price_json = excluded.price_json');
+                let chain = Promise.resolve();
+                for (const uuid of batch) {
+                    chain = chain.then(() => new Promise((next, fail) => {
+                        selectStmt.get([uuid], (err, row) => {
+                            if (err) return fail(err);
+                            const existingHistory = row ? JSON.parse(row.price_json) : {};
+                            // Merge today's data then prune to keep only recent history.
+                            const mergedData = pruneOldPriceDates(deepMerge(existingHistory, todayPriceData[uuid]));
+                            upsertStmt.run([uuid, JSON.stringify(mergedData)], (writeErr) => {
+                                progressBar.increment();
+                                if (writeErr) return fail(writeErr);
+                                next();
+                            });
                         });
+                    }));
+                }
+                chain.then(() => {
+                    selectStmt.finalize();
+                    upsertStmt.finalize();
+                    db.run('COMMIT', (commitErr) => {
+                        if (commitErr) return reject(commitErr);
+                        resolve();
                     });
-                }));
-            }
-            chain.then(() => {
-                selectStmt.finalize();
-                upsertStmt.finalize();
-                db.run('COMMIT', (commitErr) => {
-                    progressBar.stop();
-                    if (commitErr) return reject(commitErr);
-                    console.log(' -> Database commit successful.');
-                    resolve();
-                });
-            }).catch(reject);
+                }).catch(reject);
+            });
         });
-    });
+    }
+
+    progressBar.stop();
+    console.log(' -> Database commit successful.');
     await new Promise((res, rej) => db.close(e => e ? rej(e) : res()));
+
+    // Free disk space — file re-downloaded on next run anyway.
+    try { fs.unlinkSync(pricesJsonPath); } catch {}
+    console.log(` -> Deleted ${path.basename(pricesJsonPath)} after successful merge.`);
 }
 
 /**
@@ -404,56 +408,48 @@ async function updatePriceHistory(pricesJsonPath, targetDbPath) {
 async function runDailyUpdate() {
     const startTime = Date.now();
     console.log(`[${new Date().toISOString()}] Starting daily data refresh pipeline...`);
-    const progress = await createProgressTracker().catch(() => null);
-    const track = async (method, ...args) => {
-        if (!progress || typeof progress[method] !== 'function') return;
-        try {
-            await progress[method](...args);
-        } catch (err) {
-            console.warn(`[daily-update] progress ${method} failed:`, err.message || err);
+
+    // Clean up stale temp files left over from any previous crashed run.
+    for (const tmp of [SOURCE_DB_PATH, TODAY_PRICES_PATH]) {
+        if (fs.existsSync(tmp)) {
+            try { fs.unlinkSync(tmp); console.log(`[daily-update] Cleaned up stale temp file: ${tmp}`); } catch {}
         }
-    };
-    await log('Starting daily data refresh pipeline...');
+    }
+
+    const progress = createProgressTracker();
 
     let currentStage = null;
     try {
         currentStage = 'backup';
-        await track('markRunning', currentStage, 'Backing up existing AllData.sqlite...');
-        await log('Backing up existing AllData.sqlite...');
+        progress.markRunning(currentStage, 'Backing up existing AllData.sqlite...');
         const backupPath = await backupAllData(TARGET_DB_PATH, BACKUP_DIR);
         if (backupPath) {
             console.log(` -> Backup created at ${backupPath}`);
-            await log(`Backup created at ${backupPath}`);
-            await track('markDone', currentStage, 'Backup created.');
+            progress.markDone(currentStage, 'Backup created.');
         } else {
             console.log(' -> No existing AllData.sqlite found; skipping backup.');
-            await log('No existing AllData.sqlite found; skipping backup.');
-            await track('markDone', currentStage, 'No existing AllData.sqlite; skipped.');
+            progress.markDone(currentStage, 'No existing AllData.sqlite; skipped.');
         }
 
         currentStage = 'downloadPrintings';
-        await track('markRunning', currentStage, 'Downloading AllPrintings.sqlite...');
-        await log('Downloading latest data files from MTGJSON...');
+        progress.markRunning(currentStage, 'Downloading AllPrintings.sqlite...');
         await downloadFile(URLS.AllPrintings, SOURCE_DB_PATH);
-        await log('AllPrintings.sqlite downloaded successfully.');
-        await track('markDone', currentStage, 'AllPrintings.sqlite downloaded.');
+        progress.markDone(currentStage, 'AllPrintings.sqlite downloaded.');
 
         currentStage = 'downloadPrices';
-        await track('markRunning', currentStage, 'Downloading AllPricesToday.json...');
-        await log('Downloading latest price data from MTGJSON...');
+        progress.markRunning(currentStage, 'Downloading AllPricesToday.json...');
         await downloadFile(URLS.AllPricesToday, TODAY_PRICES_PATH);
-        await log('AllPricesToday.json downloaded successfully.');
-        await track('markDone', currentStage, 'AllPricesToday.json downloaded.');
+        progress.markDone(currentStage, 'AllPricesToday.json downloaded.');
 
         currentStage = 'refreshPrintings';
-        await track('markRunning', currentStage, 'Refreshing printings data...');
+        progress.markRunning(currentStage, 'Refreshing printings data...');
         console.log(`\nRefreshing printings data in ${TARGET_DB_PATH}...`);
         const db = new sqlite3.Database(TARGET_DB_PATH);
 
         const preservationPlaceholders = PRESERVED_DB_OBJECTS.map(() => '?').join(', ');
         const oldObjectsQuery = `
-            SELECT name, type FROM sqlite_master 
-            WHERE name NOT LIKE 'sqlite_%' 
+            SELECT name, type FROM sqlite_master
+            WHERE name NOT LIKE 'sqlite_%'
             AND name NOT IN (${preservationPlaceholders})
         `;
         const oldObjects = await new Promise((resolve, reject) => {
@@ -484,7 +480,6 @@ async function runDailyUpdate() {
         });
 
         console.log(` -> Found ${tablesToCopy.length} tables to copy: ${tablesToCopy.join(', ')}`);
-        await log(`Copying ${tablesToCopy.length} tables to main database...`);
         await new Promise((resolve, reject) => {
             db.serialize(() => {
                 db.run('BEGIN TRANSACTION');
@@ -497,34 +492,43 @@ async function runDailyUpdate() {
 
         await new Promise((res, rej) => db.run('DETACH DATABASE new_printings', e => e ? rej(e) : res()));
         await new Promise((res, rej) => db.close(e => e ? rej(e) : res()));
+
+        // AllPrintings.sqlite is large (~500MB) and only needed during this stage — delete it now.
+        try { fs.unlinkSync(SOURCE_DB_PATH); } catch {}
+        console.log(' -> Deleted AllPrintings.sqlite after successful copy.');
         console.log('Printings data refreshed successfully.');
-        await track('markDone', currentStage, 'Printings data refreshed.');
+        progress.markDone(currentStage, 'Printings data refreshed.');
 
         currentStage = 'mergePriceHistory';
-        await track('markRunning', currentStage, 'Merging daily price history...');
+        progress.markRunning(currentStage, 'Merging daily price history...');
+        // updatePriceHistory deletes TODAY_PRICES_PATH after a successful run.
         await updatePriceHistory(TODAY_PRICES_PATH, TARGET_DB_PATH);
         console.log('Price history merged successfully.');
-        await track('markDone', currentStage, 'Price history merged.');
+        progress.markDone(currentStage, 'Price history merged.');
 
         currentStage = 'refreshInventoryPrices';
-        await track('markRunning', currentStage, 'Refreshing inventory market prices...');
+        progress.markRunning(currentStage, 'Refreshing inventory market prices...');
         await refreshInventoryMarketPrices(TARGET_DB_PATH);
         console.log('Inventory market prices refreshed.');
-        await track('markDone', currentStage, 'Inventory market prices refreshed.');
+        progress.markDone(currentStage, 'Inventory market prices refreshed.');
 
         currentStage = 'consolidateInventory';
-        await track('markRunning', currentStage, 'Consolidating duplicate inventory rows...');
+        progress.markRunning(currentStage, 'Consolidating duplicate inventory rows...');
         await consolidateInventory(TARGET_DB_PATH);
         console.log('Inventory consolidation complete.');
-        await track('markDone', currentStage, 'Inventory consolidation complete.');
+        progress.markDone(currentStage, 'Inventory consolidation complete.');
 
-        await track('finalize', 'Daily data refresh pipeline completed successfully.');
-        await log('Daily data refresh pipeline completed successfully.');
+        progress.finalize('Daily data refresh pipeline completed successfully.');
 
     } catch (error) {
         console.error('\nX An error occurred during the daily update:', error);
-        await track('markError', currentStage || 'backup', `Failed during ${currentStage || 'startup'}: ${error.message || error}`);
-        await log(`X An error occurred during the daily update: ${error.message}`);
+        progress.markError(currentStage || 'backup', `Failed during ${currentStage || 'startup'}: ${error.message || error}`);
+        // Best-effort cleanup of any temp files left behind.
+        for (const tmp of [SOURCE_DB_PATH, TODAY_PRICES_PATH]) {
+            if (fs.existsSync(tmp)) {
+                try { fs.unlinkSync(tmp); } catch {}
+            }
+        }
         process.exit(1);
     }
 

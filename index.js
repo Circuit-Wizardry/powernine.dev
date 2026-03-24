@@ -13,15 +13,8 @@ import fs from 'fs';
 import { initializeCardNameCache } from './utils/card-data.js';
 import { startDynDnsUpdater } from './utils/dyn-dns.js';
 import { createSessionAuth } from './utils/session-auth.js';
-import { setWebhookUrl, setManaPoolWebhookUrl } from './discord.js';
-import {
-    initAutomationScheduler,
-    setAutomationEnabled,
-    triggerAutomationRun,
-    getAutomationRuntimeState,
-    applyAutomationSettingsUpdate
-} from './utils/automation-runner.js';
-import { startDiscordBot, logDiscordConsole } from './utils/discord-bot.js';
+import { notifyError } from './utils/discord-notify.js';
+import { initAutomationScheduler, setAutomationEnabled } from './utils/automation-runner.js';
 import { setInventoryLockState, getInventoryLockState } from './utils/manapool-service.js';
 import { startBuylistReporter, refreshInventoryBuylistSnapshot } from './utils/buylist-reporter.js';
 
@@ -39,27 +32,25 @@ exec('npx playwright install chromium --with-deps', (error, stdout, stderr) => {
       }
 });
 
+// --- Clean up temp files from any previously crashed daily-update run ---
+for (const tmp of ['data/AllPricesToday.json', 'data/AllPrintings.sqlite']) {
+      const tmpPath = path.join(__dirname, tmp);
+      if (fs.existsSync(tmpPath)) {
+            try {
+                  fs.unlinkSync(tmpPath);
+                  console.log(`[startup] Cleaned up stale temp file: ${tmp}`);
+            } catch (e) {
+                  console.warn(`[startup] Could not remove stale temp file ${tmp}:`, e.message);
+            }
+      }
+}
+
 const app = express();
 app.set('trust proxy', 1); // Trust Railway's reverse proxy for secure cookies/rate limiting
 const PORT = process.env.PORT || 3000;
 
 const APP_USER = process.env.APP_USER;
 const APP_PASSWORD = process.env.APP_PASSWORD;
-const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
-const MANAPOOL_WEBHOOK_URL = process.env.MANAPOOL_WEBHOOK_URL;
-
-if (DISCORD_WEBHOOK_URL) {
-      setWebhookUrl(DISCORD_WEBHOOK_URL);
-} else {
-      console.warn('[discord] DISCORD_WEBHOOK_URL is not configured. Discord logging is disabled.');
-}
-
-if (MANAPOOL_WEBHOOK_URL) {
-      setManaPoolWebhookUrl(MANAPOOL_WEBHOOK_URL);
-} else {
-      console.warn('[discord] MANAPOOL_WEBHOOK_URL is not configured. ManaPool automation alerts are disabled.');
-}
-
 if (!APP_USER || !APP_PASSWORD) {
       throw new Error('APP_USER and APP_PASSWORD environment variables must be set.');
 }
@@ -70,13 +61,12 @@ if (APP_USER === 'admin' && APP_PASSWORD === 'password') {
 
 process.on('uncaughtException', (error) => {
       console.error('[server] Uncaught exception:', error);
-      logDiscordConsole(`[server] Uncaught exception: ${error?.message || error}`).catch(() => {});
+      notifyError('server', error?.message || String(error)).catch(() => {});
 });
 
 process.on('unhandledRejection', (reason) => {
       console.error('[server] Unhandled rejection:', reason);
-      const message = reason && reason.message ? reason.message : String(reason);
-      logDiscordConsole(`[server] Unhandled rejection: ${message}`).catch(() => {});
+      notifyError('server', reason?.message || String(reason)).catch(() => {});
 });
 
 // --- CORE MIDDLEWARE ---
@@ -361,18 +351,6 @@ const db = new sqlite3.Database(DB_PATH, sqlite3.OPEN_READWRITE | sqlite3.OPEN_C
                                     }
                               }
                         });
-                        await startDiscordBot({
-                              startAutomation: () => setAutomationEnabled(true, { reason: 'Started from Discord', db }),
-                              stopAutomation: () => setAutomationEnabled(false, { reason: 'Stopped from Discord', db }),
-                              runAutomation: () => triggerAutomationRun(),
-                              lockInventory: () => setInventoryLockState(true, { reason: 'Emergency stop via Discord', actor: 'Discord' }),
-                              unlockInventory: () => setInventoryLockState(false, { actor: 'Discord' }),
-                              applySetting: (update) => applyAutomationSettingsUpdate(update, { db, reason: 'Updated via Discord slash command' }),
-                              fetchStatus: async () => ({
-                                    automation: getAutomationRuntimeState(),
-                                    inventoryLock: getInventoryLockState()
-                              })
-                        });
                   });
             }
       }
@@ -473,10 +451,11 @@ console.log('Scheduling the daily data pipeline update for 12:00 PM UTC...');
 cron.schedule('0 12 * * *', () => {
       console.log(`[${new Date().toISOString()}] Kicking off daily database merge job...`);
       const updateScriptPath = path.join(__dirname, 'daily-update.js');
-      exec(`node ${updateScriptPath}`, (error, stdout, stderr) => {
-            if (error) console.error(`❌ [CRON-ERROR] Failed to run update script: ${error.message}`);
-            if (stderr) console.error(`❌ [CRON-STDERR] ${stderr}`);
-            console.log(`✅ [CRON-STDOUT] Daily update finished:\n${stdout}`);
+      // Cap at 1 GB so a runaway daily update can't take down the server's memory.
+      exec(`node --max-old-space-size=1024 ${updateScriptPath}`, (error, stdout, stderr) => {
+            if (error) console.error(`[CRON-ERROR] Failed to run update script: ${error.message}`);
+            if (stderr) console.error(`[CRON-STDERR] ${stderr}`);
+            console.log(`[CRON-STDOUT] Daily update finished:\n${stdout}`);
       });
 });
 
