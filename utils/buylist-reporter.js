@@ -3,6 +3,8 @@ import path from 'path';
 import { chromium } from 'playwright';
 import { scrapeStarCityGamesBuylist } from '../scrapers/starcitygames.js';
 import { scrapeTcgplayerData } from '../scrapers/tcgplayer.js';
+import { logDiscordConsole } from './discord-bot.js';
+import { updateBuylistEmbed } from './discord-bot.js';
 
 const PUBLIC_REPORT_PATH = path.join(process.cwd(), 'public', 'buylist-report.json');
 const REPORT_INTERVAL_MS = 60 * 60 * 1000 * 16;
@@ -270,6 +272,7 @@ export const buildBuylistReport = async (db, options = {}) => {
             topDeals: []
         };
         saveReport(emptyReport);
+        await updateBuylistEmbed(emptyReport).catch(() => {});
         return emptyReport;
     }
 
@@ -325,6 +328,7 @@ export const buildBuylistReport = async (db, options = {}) => {
         }
     };
     saveReport(report);
+    await updateBuylistEmbed(report).catch(() => {});
     return report;
 };
 
@@ -362,6 +366,7 @@ export const startBuylistReporter = (db, options = {}) => {
             await refreshBuylistReport(db);
         } catch (error) {
             console.error('[buylist] Scheduled refresh failed:', error);
+            logDiscordConsole(`[buylist] Scheduled refresh failed: ${error?.message || error}`).catch(() => {});
         }
     };
     if (buylistTimer) clearInterval(buylistTimer);

@@ -8,6 +8,8 @@ import {
     MANAPOOL_AUTO_SHIPPING_AMOUNT,
     MANAPOOL_AUTO_SHIPPING_THRESHOLD,
 } from './expense-helpers.js';
+import { sendManaPoolWebhook } from '../discord.js';
+import { logDiscordConsole, logDiscordEvent, updateAutomationBotState } from './discord-bot.js';
 
 const API_BASE = process.env.MANAPOOL_API_BASE || 'https://manapool.com/api/v1';
 const API_KEY = process.env.MANAPOOL_API_KEY || '';
@@ -38,9 +40,14 @@ export function setInventoryLockState(locked, options = {}) {
     inventoryLockState.reason = nowLocked ? (options.reason || '') : '';
     inventoryLockState.actor = nowLocked ? (options.actor || '') : '';
     inventoryLockState.lockedAt = nowLocked ? new Date().toISOString() : null;
+    updateAutomationBotState({
+        inventoryLocked: inventoryLockState.locked,
+        inventoryLockReason: inventoryLockState.reason,
+        inventoryLockActor: inventoryLockState.actor
+    });
     const action = nowLocked ? 'locked' : 'unlocked';
     const reason = inventoryLockState.reason ? `: ${inventoryLockState.reason}` : '';
-    console.log(`[inventory] Inventory sync ${action}${reason}`);
+    logDiscordConsole(`[inventory] Inventory sync ${action}${reason}`).catch(() => {});
     return getInventoryLockState();
 }
 
@@ -1302,6 +1309,7 @@ const pushInventoryRows = async (items = [], options = {}) => {
             });
         }
 
+        await sendManaPoolWebhook({ embeds: [embed] });
     }
 
     const automationSummary = automationOptions ? {
