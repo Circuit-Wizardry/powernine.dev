@@ -637,6 +637,19 @@ const findUuidByScryfallId = (scryfallId) => new Promise((resolve) => {
         }
     });
 
+    // --- Database download ---
+    router.get('/admin/download-db', (req, res) => {
+        const dbPath = path.resolve('./data/AllData.sqlite');
+        if (!fs.existsSync(dbPath)) {
+            return res.status(404).json({ error: 'Database file not found.' });
+        }
+        const stat = fs.statSync(dbPath);
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename="AllData-${new Date().toISOString().slice(0,10)}.sqlite"`);
+        res.setHeader('Content-Length', stat.size);
+        fs.createReadStream(dbPath).pipe(res);
+    });
+
     // --- Backup management ---
     const BACKUP_DIR = path.resolve('./data/backups');
 

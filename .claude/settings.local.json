@@ -22,7 +22,8 @@
       "Bash(timeout 12 node --input-type=module --eval \":*)",
       "Bash(npm install:*)",
       "Bash(node -e \"import\\(''discord.js''\\).then\\(\\(\\)=>console.log\\(''discord.js OK''\\)\\).catch\\(e=>console.error\\(e.message\\)\\)\")",
-      "Bash(grep -v \"^$\")"
+      "Bash(grep -v \"^$\")",
+      "Bash(timeout 8 node -e \":*)"
     ]
   }
 }
